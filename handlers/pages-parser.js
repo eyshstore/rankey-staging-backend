@@ -193,6 +193,30 @@ function getRank($) {
     });
   }
 
+  // Fallback 3: Table layout with prodDetSectionEntry (75% of failed products)
+  if (!rank) {
+    $('th.prodDetSectionEntry').each((_, el) => {
+      const text = $(el).text();
+      if (/best sellers?\s*rank/i.test(text)) {
+        const tdText = $(el).next('td').text();
+        rank = extractRankFromText(tdText);
+        if (rank) return false;
+      }
+    });
+  }
+
+  // Fallback 4: Bullet list with a-text-bold (25% of failed products)
+  if (!rank) {
+    $('span.a-text-bold').each((_, el) => {
+      const text = $(el).text();
+      if (/best sellers?\s*rank/i.test(text)) {
+        const parentText = $(el).parent().text();
+        rank = extractRankFromText(parentText);
+        if (rank) return false;
+      }
+    });
+  }
+
   return rank;
 }
 

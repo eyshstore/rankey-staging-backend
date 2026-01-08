@@ -49,8 +49,9 @@ const ProductSchema = new Schema(
     rank: {
       type: Number,
       set: v => {
+        if (v === null || v === undefined) return null;
         const num = Number(v);
-        return isNaN(num) ? undefined : num;
+        return isNaN(num) ? null : num;
       },
     },
     availabilityQuantity: {

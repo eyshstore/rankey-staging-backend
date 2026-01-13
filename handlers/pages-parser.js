@@ -277,11 +277,64 @@ function writeProduct(object, field, value) {
 }
 
 function getDiscountCoupon($) {
-  const coupon = $(".couponLabelText").get(0);
-  if (coupon) {
-    return coupon.children[0] ? coupon.children[0].data : "none";
+  const html = $.html();
+
+  // Step 1: Basic structure validation
+  const hasCouponLabel = html.includes('couponLabelText');
+  const hasCheckbox = html.includes('type="checkbox"') &&
+                      html.includes('id="checkboxpctch');
+
+  if (!hasCouponLabel || !hasCheckbox) {
+    return "none";
   }
-  return "none";
+
+  // Step 2: Extract coupon text
+  const couponElement = $(".couponLabelText").first();
+  if (couponElement.length === 0) {
+    return "none";
+  }
+
+  const couponText = couponElement.text().trim();
+
+  // Step 3: Find coupon container (look for slot-id patterns)
+  let couponContainer = html;
+  const slotIdMatch = html.match(/data-csa-c-slot-id="(dp-aod-price-block-promotion-0|dp-promo-price-block-message)"[\s\S]{0,2000}?couponLabelText/);
+
+  if (slotIdMatch) {
+    const slotIdIndex = html.indexOf(slotIdMatch[0]);
+    couponContainer = html.substring(slotIdIndex, slotIdIndex + 2000);
+  }
+
+  // Step 4: Filter Subscribe & Save ONLY coupons
+  const snsOnlyPhrases = [
+    'on your first Subscribe and Save',
+    'on your first Subscribe & Save',
+    'extra 15% on your first Subscribe',
+    'when you subscribe and save',
+    'Coupon available when you select',
+    'Subscribe & Save orders only',
+    'when you select Subscribe',
+    'first Subscribe and Save',
+    ':amzn1.bot.SNS'
+  ];
+
+  const isSNSOnly = snsOnlyPhrases.some(phrase =>
+    couponContainer.toLowerCase().includes(phrase.toLowerCase())
+  );
+
+  if (isSNSOnly) {
+    return "none";
+  }
+
+  // Step 5: Extract coupon value
+  const valueMatch = couponContainer.match(/Apply[\s\S]{0,50}?(\d+%|\$\d+(?:\.\d{2})?)[\s\S]{0,50}?coupon/i) ||
+                     couponContainer.match(/Save[\s\S]{0,50}?(\d+%|\$\d+(?:\.\d{2})?)[\s\S]{0,50}?(?:with\s+)?coupon/i) ||
+                     couponContainer.match(/coupon[\s\S]{0,50}?(\d+%|\$\d+(?:\.\d{2})?)/i) ||
+                     couponText.match(/(\d+%|\$\d+(?:\.\d{2})?)/);
+
+  const couponValue = valueMatch ? valueMatch[1] : couponText;
+
+  return couponValue || "none";
 }
 
 function getRatingStars($) {

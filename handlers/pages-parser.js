@@ -60,7 +60,7 @@ function validateCurrencyUSD(html, pricePosition) {
   const context = html.substring(start, end);
 
   // Check for non-USD currency symbols
-  const nonUSDSymbols = ['S, '£', '€', 'A, 'C, 'CA, 'AU, '¥', '₹', 'R];
+  const nonUSDSymbols = ['$', '£', '€', 'A$', 'C$', 'CA$', 'AU$', '¥', '₹', 'R$'];
   const hasNonUSDSymbol = nonUSDSymbols.some(symbol => context.includes(symbol));
 
   // Check for non-USD currency code in JSON

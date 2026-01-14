@@ -53,91 +53,40 @@ function getTitle($) {
   return $("span#productTitle").text().trim();
 }
 
-function validateCurrencyUSD(html, pricePosition) {
-  // Extract 200 chars before and after the price position
-  const start = Math.max(0, pricePosition - 200);
-  const end = Math.min(html.length, pricePosition + 200);
-  const context = html.substring(start, end);
-
-  // Check for non-USD currency symbols
-  const nonUSDSymbols = ['S, '£', '€', 'A, 'C, 'CA, 'AU, '¥', '₹', 'R];
-  const hasNonUSDSymbol = nonUSDSymbols.some(symbol => context.includes(symbol));
-
-  // Check for non-USD currency code in JSON
-  const currencyMatch = context.match(/"currencyCode":"([^"]+)"/);
-  const hasNonUSDCode = currencyMatch && currencyMatch[1] !== 'USD';
-
-  if (hasNonUSDSymbol || hasNonUSDCode) {
-    const detected = currencyMatch ? currencyMatch[1] : 'non-USD symbol';
-    console.log(`[validateCurrencyUSD] Rejected: ${detected}`);
-    return false;
-  }
-  return true;
-}
-
 function setPrice(product, $) {
-  const html = $.html();
-
-  // PRIORITY 1: priceToPay with index logic (skip Prime/S&S price)
-  const priceToPayElements = $(".priceToPay .a-offscreen");
-  if (priceToPayElements.length > 0) {
-    // If 2+ prices, use index 1 (skip Prime discount at index 0)
-    // Unless index 1 is S&S (check for savingsPercentage nearby)
-    let selectedIndex = 0;
-    if (priceToPayElements.length >= 2) {
-      // Check if second price is in S&S context
-      const secondPriceHtml = priceToPayElements.eq(1).parent().parent().html() || '';
-      const isSecondSNS = secondPriceHtml.includes('savingsPercentage') ||
-                          secondPriceHtml.includes('Subscribe & Save');
-      selectedIndex = isSecondSNS ? 0 : 1;
-    }
-
-    const priceText = priceToPayElements.eq(selectedIndex).text().trim();
-    const priceMatch = priceText.match(/\$?([\d,]+\.?\d*)/);
-    if (priceMatch) {
-      const priceValue = priceMatch[1].replace(/,/g, '');
-      // Validate currency
-      const pricePos = html.indexOf(priceText);
-      if (pricePos !== -1 && validateCurrencyUSD(html, pricePos)) {
-        product["price"] = "$" + priceValue;
-        return;
-      }
-    }
+  if (!product["price"]) {
+    product["price"] = $(".a-price .a-offscreen").first().text().trim();
   }
-
-  // PRIORITY 2: Standard a-offscreen price
-  const offscreenPrice = $(".a-price .a-offscreen").first().text().trim();
-  if (offscreenPrice) {
-    const pricePos = html.indexOf(offscreenPrice);
-    if (pricePos !== -1 && validateCurrencyUSD(html, pricePos)) {
-      product["price"] = offscreenPrice;
-      return;
-    }
+  /*
+  $(".a-size-mini.olpMessageWrapper").each(function () {
+    const priceText = $(this).text();
+    product["price"] += priceText.slice(priceText.indexOf("$")) + " ";
+  });
+  */
+  if (!product["price"]) {
+    let prices = $(".a-price.aok-align-center.reinventPricePriceToPayMargin.priceToPay:first-child").text().split("$");
+    prices = prices.filter((p) => isFinite(parseInt(p)));
+    product["price"] = prices[0];
   }
-
-  // PRIORITY 3: reinventPricePriceToPayMargin
-  const reinventPrice = $(".a-price.aok-align-center.reinventPricePriceToPayMargin.priceToPay .a-offscreen").text().trim();
-  if (reinventPrice) {
-    const pricePos = html.indexOf(reinventPrice);
-    if (pricePos !== -1 && validateCurrencyUSD(html, pricePos)) {
-      product["price"] = reinventPrice;
-      return;
-    }
+  if (!product["price"]) {
+    const priceString = $(".swatches.swatchesSquare").text();
+    const priceRegex = /\$\d/;
+    const priceIdx = priceString.search(priceRegex);
+    const price = priceString.substring(priceIdx, priceIdx + 6);
+    product["price"] = price;
   }
-
-  // PRIORITY 4: data-a-color price
-  const colorPrice = $("[data-a-color='price'] .a-offscreen").text().trim();
-  if (colorPrice) {
-    const pricePos = html.indexOf(colorPrice);
-    if (pricePos !== -1 && validateCurrencyUSD(html, pricePos)) {
-      product["price"] = colorPrice;
-      return;
-    }
+  if (!product["price"].trim()) {
+    const priceString = $(".a-price.aok-align-center.reinventPricePriceToPayMargin.priceToPay .a-offscreen").text();
+    product["price"] = priceString;
   }
-
-  // PRIORITY 5: Fallbacks (legacy selectors, no currency validation)
   if (!product["price"]) {
     product["price"] = $("#size_name_0_price").text().trim();
+  }
+  if (!product["price"]) {
+    product["price"] = $("[data-a-color='price'] .a-offscreen").text().trim();
+  }
+  if (!product["price"]) {
+    product["price"] = $("#variation_scent_name > ul").text().trim();
   }
   if (!product["price"]) {
     product["price"] = $("span.a-text-price:nth-child(1) > span:nth-child(1)").text().trim();
@@ -328,80 +277,11 @@ function writeProduct(object, field, value) {
 }
 
 function getDiscountCoupon($) {
-  const html = $.html();
-
-  // Step 1: Basic structure validation
-  const hasCouponLabel = html.includes('couponLabelText');
-  const hasCheckbox = html.includes('type="checkbox"') &&
-                      html.includes('id="checkboxpctch');
-
-  if (!hasCouponLabel || !hasCheckbox) {
-    return "none";
+  const coupon = $(".couponLabelText").get(0);
+  if (coupon) {
+    return coupon.children[0] ? coupon.children[0].data : "none";
   }
-
-  // Step 2: Extract ONLY the VISIBLE accordion section (not hidden S&S section)
-  // Amazon pages have TWO coupon sections:
-  // - reinvent_price_desktop_newAccordionRow (VISIBLE - regular coupon)
-  // - reinvent_price_desktop_snsAccordionRowMiddle (HIDDEN - S&S only)
-  let visibleSection = null;
-  const newAccordionMatch = html.match(/<div id="reinvent_price_desktop_newAccordionRow"[^>]*>([\s\S]*?)(?=<div id="reinvent_price_desktop_snsAccordionRowMiddle"|<\/div>\s*<\/div>\s*<\/div>)/);
-
-  if (newAccordionMatch) {
-    visibleSection = newAccordionMatch[1];
-  }
-
-  // Step 3: Find coupon container with slot-id
-  let couponContainer = visibleSection || html;
-  const slotIdMatch = couponContainer.match(/data-csa-c-slot-id="(dp-aod-price-block-promotion-0|dp-promo-price-block-message)"[\s\S]{0,2000}?couponLabelText/);
-
-  if (slotIdMatch) {
-    const slotIdIndex = couponContainer.indexOf(slotIdMatch[0]);
-    couponContainer = couponContainer.substring(slotIdIndex, slotIdIndex + 2000);
-  } else if (visibleSection && visibleSection.includes('couponLabelText')) {
-    // Use visible section as container
-    couponContainer = visibleSection;
-  } else if (!visibleSection) {
-    // No accordion found, no slot-id found - coupon not in primary position
-    return "none";
-  }
-
-  // Step 4: Filter Subscribe & Save ONLY coupons
-  const snsOnlyPhrases = [
-    'on your first Subscribe and Save',
-    'on your first Subscribe & Save',
-    'on your first Subscribe &amp; Save',
-    'extra 15% on your first Subscribe',
-    'when you subscribe and save',
-    'when you Subscribe and Save',
-    'Coupon available when you select',
-    'Subscribe & Save orders only',
-    'when you select Subscribe',
-    'when you selectSubscribe',
-    'first Subscribe and Save',
-    ':amzn1.bot.SNS',
-    'with Subscribe and Save order',
-    'with Subscribe & Save order'
-  ];
-
-  const containerLower = couponContainer.toLowerCase();
-  const isSNSOnly = snsOnlyPhrases.some(phrase =>
-    containerLower.includes(phrase.toLowerCase())
-  );
-
-  if (isSNSOnly) {
-    return "none";
-  }
-
-  // Step 5: Extract coupon value
-  const couponText = $(".couponLabelText").first().text().trim();
-
-  const valueMatch = couponContainer.match(/Apply[\s\S]{0,50}?(\d+%|\$\d+(?:\.\d{2})?)[\s\S]{0,50}?coupon/i) ||
-                     couponContainer.match(/Save[\s\S]{0,50}?(\d+%|\$\d+(?:\.\d{2})?)[\s\S]{0,50}?(?:with\s+)?coupon/i) ||
-                     couponContainer.match(/coupon[\s\S]{0,50}?(\d+%|\$\d+(?:\.\d{2})?)/i) ||
-                     couponText.match(/(\d+%|\$\d+(?:\.\d{2})?)/);
-
-  const couponValue = valueMatch ? valueMatch[1] : couponText;
-  return couponValue || "none";
+  return "none";
 }
 
 function getRatingStars($) {

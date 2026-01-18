@@ -3,7 +3,12 @@
     "allow": [
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(ssh root@5.78.43.96 \"cd /root/rankey-api && git pull && pm2 restart rankey-api\")",
+      "Bash(ssh root@5.78.43.96 \"cd /root/rankey-api && mv .env .env.backup && git pull && pm2 restart rankey-api\")",
+      "Bash(ssh:*)"
     ]
   }
 }

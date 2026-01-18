@@ -8,10 +8,11 @@ class ScrapingBee extends ScrapingProvider {
   constructor() {
     super(
       "https://app.scrapingbee.com/api/v1/",
-      { render_js: false },
       {
-        'Cookie': 'i18n-prefs=USD; lc-main=en_US; session-id=000-0000000-0000000'
+        render_js: false,
+        cookies: 'i18n-prefs=USD;lc-main=en_US'
       },
+      {},
       "https://app.scrapingbee.com/api/v1/usage"
     );
   }

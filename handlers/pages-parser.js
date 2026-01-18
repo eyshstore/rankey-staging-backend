@@ -77,48 +77,70 @@ function validateCurrencyUSD(html, pricePosition) {
 
 function setPrice(product, $) {
   const html = $.html();
+  console.log(`[setPrice] Starting price extraction...`);
+  console.log(`[setPrice] HTML length: ${html.length}`);
 
   // PRIORITY 1: priceToPay - get FIRST element only
   const priceToPayEl = $(".priceToPay .a-offscreen").first();
+  console.log(`[setPrice] PRIORITY 1 - priceToPay elements found: ${$(".priceToPay .a-offscreen").length}`);
+  console.log(`[setPrice] PRIORITY 1 - first element text: "${priceToPayEl.text().trim()}"`);
   if (priceToPayEl.length > 0) {
     const priceText = priceToPayEl.text().trim();
     const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
+    console.log(`[setPrice] PRIORITY 1 - regex match: ${priceMatch ? priceMatch[0] : 'NO MATCH'}`);
     if (priceMatch) {
       const priceValue = priceMatch[1].replace(/,/g, '');
       product["price"] = "$" + priceValue;
+      console.log(`[setPrice] PRIORITY 1 - SUCCESS, returning: "${product["price"]}"`);
+      console.log(`[setPrice] FINAL RESULT: "${product["price"]}"`);
       return;
     }
   }
 
   // PRIORITY 2: Standard a-offscreen - get FIRST only
   const offscreenEl = $(".a-price .a-offscreen").first();
+  console.log(`[setPrice] PRIORITY 2 - a-price elements found: ${$(".a-price .a-offscreen").length}`);
+  console.log(`[setPrice] PRIORITY 2 - first element text: "${offscreenEl.text().trim()}"`);
   if (offscreenEl.length > 0) {
     const priceText = offscreenEl.text().trim();
     const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
+    console.log(`[setPrice] PRIORITY 2 - regex match: ${priceMatch ? priceMatch[0] : 'NO MATCH'}`);
     if (priceMatch) {
       product["price"] = "$" + priceMatch[1].replace(/,/g, '');
+      console.log(`[setPrice] PRIORITY 2 - SUCCESS, returning: "${product["price"]}"`);
+      console.log(`[setPrice] FINAL RESULT: "${product["price"]}"`);
       return;
     }
   }
 
   // PRIORITY 3: reinventPricePriceToPayMargin - get FIRST only
   const reinventEl = $(".a-price.reinventPricePriceToPayMargin.priceToPay .a-offscreen").first();
+  console.log(`[setPrice] PRIORITY 3 - reinvent elements found: ${$(".a-price.reinventPricePriceToPayMargin.priceToPay .a-offscreen").length}`);
+  console.log(`[setPrice] PRIORITY 3 - first element text: "${reinventEl.text().trim()}"`);
   if (reinventEl.length > 0) {
     const priceText = reinventEl.text().trim();
     const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
+    console.log(`[setPrice] PRIORITY 3 - regex match: ${priceMatch ? priceMatch[0] : 'NO MATCH'}`);
     if (priceMatch) {
       product["price"] = "$" + priceMatch[1].replace(/,/g, '');
+      console.log(`[setPrice] PRIORITY 3 - SUCCESS, returning: "${product["price"]}"`);
+      console.log(`[setPrice] FINAL RESULT: "${product["price"]}"`);
       return;
     }
   }
 
   // PRIORITY 4: data-a-color price - get FIRST only
   const colorEl = $("[data-a-color='price'] .a-offscreen").first();
+  console.log(`[setPrice] PRIORITY 4 - color elements found: ${$("[data-a-color='price'] .a-offscreen").length}`);
+  console.log(`[setPrice] PRIORITY 4 - first element text: "${colorEl.text().trim()}"`);
   if (colorEl.length > 0) {
     const priceText = colorEl.text().trim();
     const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
+    console.log(`[setPrice] PRIORITY 4 - regex match: ${priceMatch ? priceMatch[0] : 'NO MATCH'}`);
     if (priceMatch) {
       product["price"] = "$" + priceMatch[1].replace(/,/g, '');
+      console.log(`[setPrice] PRIORITY 4 - SUCCESS, returning: "${product["price"]}"`);
+      console.log(`[setPrice] FINAL RESULT: "${product["price"]}"`);
       return;
     }
   }
@@ -128,18 +150,25 @@ function setPrice(product, $) {
     "#size_name_0_price",
     "span.a-text-price span.a-offscreen"
   ];
+  console.log(`[setPrice] PRIORITY 5 - trying fallback selectors...`);
 
   for (const selector of fallbackSelectors) {
     const el = $(selector).first();
+    console.log(`[setPrice] PRIORITY 5 - selector "${selector}" found: ${$(selector).length}, text: "${el.text().trim()}"`);
     if (el.length > 0) {
       const priceText = el.text().trim();
       const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
+      console.log(`[setPrice] PRIORITY 5 - regex match: ${priceMatch ? priceMatch[0] : 'NO MATCH'}`);
       if (priceMatch) {
         product["price"] = "$" + priceMatch[1].replace(/,/g, '');
+        console.log(`[setPrice] PRIORITY 5 - SUCCESS, returning: "${product["price"]}"`);
+        console.log(`[setPrice] FINAL RESULT: "${product["price"]}"`);
         return;
       }
     }
   }
+
+  console.log(`[setPrice] FINAL RESULT: "${product["price"]}"`);
 }
 
 function getCategory($) {
@@ -327,13 +356,16 @@ function writeProduct(object, field, value) {
 
 function getDiscountCoupon($) {
   const html = $.html();
+  console.log(`[getDiscountCoupon] Starting coupon detection...`);
 
   // Step 1: Basic structure validation
   const hasCouponLabel = html.includes('couponLabelText');
   const hasCheckbox = html.includes('type="checkbox"') &&
                       html.includes('id="checkboxpctch');
+  console.log(`[getDiscountCoupon] hasCouponLabel: ${hasCouponLabel}, hasCheckbox: ${hasCheckbox}`);
 
   if (!hasCouponLabel || !hasCheckbox) {
+    console.log(`[getDiscountCoupon] Step 1 FAILED - returning "none"`);
     return "none";
   }
 
@@ -346,6 +378,9 @@ function getDiscountCoupon($) {
 
   if (newAccordionMatch) {
     visibleSection = newAccordionMatch[1];
+    console.log(`[getDiscountCoupon] Step 2 - Found visible accordion section, length: ${visibleSection.length}`);
+  } else {
+    console.log(`[getDiscountCoupon] Step 2 - No accordion section found`);
   }
 
   // Step 3: Find coupon container with slot-id
@@ -355,11 +390,14 @@ function getDiscountCoupon($) {
   if (slotIdMatch) {
     const slotIdIndex = couponContainer.indexOf(slotIdMatch[0]);
     couponContainer = couponContainer.substring(slotIdIndex, slotIdIndex + 2000);
+    console.log(`[getDiscountCoupon] Step 3 - Found slot-id match: ${slotIdMatch[1]}`);
   } else if (visibleSection && visibleSection.includes('couponLabelText')) {
     // Use visible section as container
     couponContainer = visibleSection;
+    console.log(`[getDiscountCoupon] Step 3 - Using visible section as container`);
   } else if (!visibleSection) {
     // No accordion found, no slot-id found - coupon not in primary position
+    console.log(`[getDiscountCoupon] Step 3 FAILED - No accordion, no slot-id - returning "none"`);
     return "none";
   }
 
@@ -385,13 +423,16 @@ function getDiscountCoupon($) {
   const isSNSOnly = snsOnlyPhrases.some(phrase =>
     containerLower.includes(phrase.toLowerCase())
   );
+  console.log(`[getDiscountCoupon] Step 4 - isSNSOnly: ${isSNSOnly}`);
 
   if (isSNSOnly) {
+    console.log(`[getDiscountCoupon] Step 4 FAILED - S&S only coupon - returning "none"`);
     return "none";
   }
 
   // Step 5: Extract coupon value
   const couponText = $(".couponLabelText").first().text().trim();
+  console.log(`[getDiscountCoupon] Step 5 - couponLabelText: "${couponText}"`);
 
   const valueMatch = couponContainer.match(/Apply[\s\S]{0,50}?(\d+%|\$\d+(?:\.\d{2})?)[\s\S]{0,50}?coupon/i) ||
                      couponContainer.match(/Save[\s\S]{0,50}?(\d+%|\$\d+(?:\.\d{2})?)[\s\S]{0,50}?(?:with\s+)?coupon/i) ||
@@ -399,6 +440,8 @@ function getDiscountCoupon($) {
                      couponText.match(/(\d+%|\$\d+(?:\.\d{2})?)/);
 
   const couponValue = valueMatch ? valueMatch[1] : couponText;
+  console.log(`[getDiscountCoupon] Step 5 - valueMatch: ${valueMatch ? valueMatch[0] : 'null'}, couponValue: "${couponValue}"`);
+  console.log(`[getDiscountCoupon] FINAL RESULT: "${couponValue || 'none'}"`);
   return couponValue || "none";
 }
 

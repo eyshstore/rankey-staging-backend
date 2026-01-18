@@ -60,7 +60,7 @@ function validateCurrencyUSD(html, pricePosition) {
   const context = html.substring(start, end);
 
   // Check for non-USD currency symbols
-  const nonUSDSymbols = ['$', '£', '€', 'A$', 'C$', 'CA$', 'AU$', '¥', '₹', 'R$'];
+  const nonUSDSymbols = ['S$', '£', '€', 'A$', 'C$', 'CA$', 'AU$', '¥', '₹', 'R$'];
   const hasNonUSDSymbol = nonUSDSymbols.some(symbol => context.includes(symbol));
 
   // Check for non-USD currency code in JSON
@@ -78,69 +78,67 @@ function validateCurrencyUSD(html, pricePosition) {
 function setPrice(product, $) {
   const html = $.html();
 
-  // PRIORITY 1: priceToPay with index logic (skip Prime/S&S price)
-  const priceToPayElements = $(".priceToPay .a-offscreen");
-  if (priceToPayElements.length > 0) {
-    // If 2+ prices, use index 1 (skip Prime discount at index 0)
-    // Unless index 1 is S&S (check for savingsPercentage nearby)
-    let selectedIndex = 0;
-    if (priceToPayElements.length >= 2) {
-      // Check if second price is in S&S context
-      const secondPriceHtml = priceToPayElements.eq(1).parent().parent().html() || '';
-      const isSecondSNS = secondPriceHtml.includes('savingsPercentage') ||
-                          secondPriceHtml.includes('Subscribe & Save');
-      selectedIndex = isSecondSNS ? 0 : 1;
-    }
-
-    const priceText = priceToPayElements.eq(selectedIndex).text().trim();
-    const priceMatch = priceText.match(/\$?([\d,]+\.?\d*)/);
+  // PRIORITY 1: priceToPay - get FIRST element only
+  const priceToPayEl = $(".priceToPay .a-offscreen").first();
+  if (priceToPayEl.length > 0) {
+    const priceText = priceToPayEl.text().trim();
+    const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
     if (priceMatch) {
       const priceValue = priceMatch[1].replace(/,/g, '');
-      // Validate currency
-      const pricePos = html.indexOf(priceText);
-      if (pricePos !== -1 && validateCurrencyUSD(html, pricePos)) {
-        product["price"] = "$" + priceValue;
+      product["price"] = "$" + priceValue;
+      return;
+    }
+  }
+
+  // PRIORITY 2: Standard a-offscreen - get FIRST only
+  const offscreenEl = $(".a-price .a-offscreen").first();
+  if (offscreenEl.length > 0) {
+    const priceText = offscreenEl.text().trim();
+    const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
+    if (priceMatch) {
+      product["price"] = "$" + priceMatch[1].replace(/,/g, '');
+      return;
+    }
+  }
+
+  // PRIORITY 3: reinventPricePriceToPayMargin - get FIRST only
+  const reinventEl = $(".a-price.reinventPricePriceToPayMargin.priceToPay .a-offscreen").first();
+  if (reinventEl.length > 0) {
+    const priceText = reinventEl.text().trim();
+    const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
+    if (priceMatch) {
+      product["price"] = "$" + priceMatch[1].replace(/,/g, '');
+      return;
+    }
+  }
+
+  // PRIORITY 4: data-a-color price - get FIRST only
+  const colorEl = $("[data-a-color='price'] .a-offscreen").first();
+  if (colorEl.length > 0) {
+    const priceText = colorEl.text().trim();
+    const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
+    if (priceMatch) {
+      product["price"] = "$" + priceMatch[1].replace(/,/g, '');
+      return;
+    }
+  }
+
+  // PRIORITY 5: Fallbacks - get FIRST only
+  const fallbackSelectors = [
+    "#size_name_0_price",
+    "span.a-text-price span.a-offscreen"
+  ];
+
+  for (const selector of fallbackSelectors) {
+    const el = $(selector).first();
+    if (el.length > 0) {
+      const priceText = el.text().trim();
+      const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
+      if (priceMatch) {
+        product["price"] = "$" + priceMatch[1].replace(/,/g, '');
         return;
       }
     }
-  }
-
-  // PRIORITY 2: Standard a-offscreen price
-  const offscreenPrice = $(".a-price .a-offscreen").first().text().trim();
-  if (offscreenPrice) {
-    const pricePos = html.indexOf(offscreenPrice);
-    if (pricePos !== -1 && validateCurrencyUSD(html, pricePos)) {
-      product["price"] = offscreenPrice;
-      return;
-    }
-  }
-
-  // PRIORITY 3: reinventPricePriceToPayMargin
-  const reinventPrice = $(".a-price.aok-align-center.reinventPricePriceToPayMargin.priceToPay .a-offscreen").text().trim();
-  if (reinventPrice) {
-    const pricePos = html.indexOf(reinventPrice);
-    if (pricePos !== -1 && validateCurrencyUSD(html, pricePos)) {
-      product["price"] = reinventPrice;
-      return;
-    }
-  }
-
-  // PRIORITY 4: data-a-color price
-  const colorPrice = $("[data-a-color='price'] .a-offscreen").text().trim();
-  if (colorPrice) {
-    const pricePos = html.indexOf(colorPrice);
-    if (pricePos !== -1 && validateCurrencyUSD(html, pricePos)) {
-      product["price"] = colorPrice;
-      return;
-    }
-  }
-
-  // PRIORITY 5: Fallbacks (legacy selectors, no currency validation)
-  if (!product["price"]) {
-    product["price"] = $("#size_name_0_price").text().trim();
-  }
-  if (!product["price"]) {
-    product["price"] = $("span.a-text-price:nth-child(1) > span:nth-child(1)").text().trim();
   }
 }
 

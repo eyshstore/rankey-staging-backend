@@ -9,7 +9,7 @@ class ScrapingBee extends ScrapingProvider {
     super(
       "https://app.scrapingbee.com/api/v1/",
       {
-        render_js: false,
+        render_js: true,
         cookies: 'i18n-prefs=USD;lc-main=en_US'
       },
       {},

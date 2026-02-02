@@ -47,14 +47,27 @@ This file contains **ALL context needed** to work on the Rankey system. It is th
 
 ### How to Use This File with Claude Code
 
+At the start of EVERY Claude Code session, run:
+```
+"Read START_HERE.md and RANKEY_MASTER_CONTEXT.md. Follow Section 9 rules."
+```
+
+**START_HERE.md is located in both repository roots** and contains:
+- Mandatory reading instructions
+- Documentation update requirements
+- Critical rules reminder
+- Reference to this file's Section 9
+
+**Standard Workflow:**
 ```
 # Start of Claude Code session:
-1. Claude Code: Read RANKEY_MASTER_CONTEXT.md first
-2. Claude Code: Check Section 3 for current state
-3. Claude Code: Follow workflow in Section 6
-4. Claude Code: Make changes on a NEW BRANCH
-5. Claude Code: Update this file in the SAME commit
-6. Claude Code: Wait for human approval before merging
+1. Claude Code: Read START_HERE.md (in repo root)
+2. Claude Code: Read RANKEY_MASTER_CONTEXT.md (this file)
+3. Claude Code: Check Section 3 for current state
+4. Claude Code: Follow workflow in Section 6
+5. Claude Code: Make changes on a NEW BRANCH
+6. Claude Code: Update this file in the SAME commit
+7. Claude Code: Wait for human approval before merging
 ```
 
 ---
@@ -342,9 +355,9 @@ This file contains **ALL context needed** to work on the Rankey system. It is th
 | Property | Value |
 |----------|-------|
 | **Current Branch** | main |
-| **Latest Commit** | c74f945 |
-| **Commit Message** | Show maxConcurrentRequests for all providers |
-| **Commit Date** | 2026-01-26 17:31:38 +0200 |
+| **Latest Commit** | ee48500 |
+| **Commit Message** | docs: Add START_HERE.md with mandatory Claude Code instructions |
+| **Commit Date** | 2026-02-02 |
 | **Deployed URL** | https://rankey-staging-ui.onrender.com |
 | **Deployment Status** | ✅ Deployed (auto-deploy from main) |
 
@@ -360,9 +373,9 @@ This file contains **ALL context needed** to work on the Rankey system. It is th
 | Property | Value |
 |----------|-------|
 | **Current Branch** | main |
-| **Latest Commit** | 274a1af |
-| **Commit Message** | fix: enable render_js for accurate price extraction |
-| **Commit Date** | 2026-01-19 16:22:58 +0200 |
+| **Latest Commit** | 4966ae1 |
+| **Commit Message** | docs: Add START_HERE.md with mandatory Claude Code instructions |
+| **Commit Date** | 2026-02-02 |
 | **API URL** | https://rankey-api.jsecom.pl |
 
 **Repository Status:**
@@ -2425,7 +2438,16 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 
 ### Recent Changes
 
-**2026-02-02 - [pending] - Security: Replace SESSION_SECRET with strong random value**
+**2026-02-02 - 4966ae1 (backend) / ee48500 (frontend) - Docs: Add START_HERE.md to both repositories**
+- Created mandatory instruction file for Claude Code
+- Ensures documentation is always updated after every change
+- Placed in root of both frontend and backend repos
+- Contains reference to RANKEY_MASTER_CONTEXT.md Section 9
+- Reminds Claude to update commit hashes, changelog, and known issues
+- Enforces workflow: never work on main, always create feature branch first
+- Testing: Files created, committed, and pushed successfully to GitHub
+
+**2026-02-02 - 5bf7118 - Security: Replace SESSION_SECRET with strong random value**
 - Generated 48-character alphanumeric random string
 - Updated /root/rankey-api/.env on server
 - Changed from "secret" to strong random value
@@ -2434,7 +2456,7 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 - Verified backend running successfully, no errors
 - Testing: Backend started cleanly, database connected, HTTP server running on port 7000
 
-**2026-02-02 - [pending] - Docs: Add comprehensive system documentation**
+**2026-02-02 - 5bf7118 - Docs: Add comprehensive system documentation**
 - Created SYSTEM.md (technical documentation, public)
 - Created RANKEY_MASTER_CONTEXT.md (master context file for Claude)
 - Created CREDENTIALS.md (private credentials, not in git)

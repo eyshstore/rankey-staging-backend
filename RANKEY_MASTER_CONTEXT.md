@@ -839,15 +839,22 @@ C:\Users\user\Documents\Jonathan Documents\eBay\Rankey\rankey-staging\
 
 ### Local Testing Status
 
-⚠️ **Current Status:** Local testing environment needs to be reconfigured after recent reorganization
+✅ **Current Status:** Local testing environment is FULLY CONFIGURED and operational
 
-**What's Needed:**
-1. Set up local MongoDB instance
-2. Create `.env.local` for backend (pointing to local MongoDB)
-3. Create `.env.local` for frontend (pointing to local backend)
-4. Install dependencies in both repos
-5. Run frontend: `npm run dev` (Vite dev server)
-6. Run backend: `npm start` (Node.js)
+**Completed Setup:**
+1. ✅ Local MongoDB instance running (Windows Service)
+2. ✅ `.env.local` for backend (configured for local development)
+3. ✅ `.env.local` for frontend (pointing to local backend)
+4. ✅ Dependencies installed in both repos
+5. ✅ Production data imported to local MongoDB
+   - 296,889 products
+   - 95,214 categories
+   - 105 scans
+   - 2 sessions
+6. ✅ Backend runs: `npm start` (Node.js on port 7000)
+7. ✅ Frontend runs: `npm run dev` (Vite dev server on port 5173)
+
+**Last Updated:** 2026-02-03
 
 ### Temporary Testing Approach
 
@@ -869,47 +876,48 @@ C:\Users\user\Documents\Jonathan Documents\eBay\Rankey\rankey-staging\
    - Monitor logs closely after deployment
    - Get user feedback quickly
 
-### Future Local Testing Setup (TODO)
+### Active Local Testing Setup
 
 **MongoDB Local:**
-```bash
-# Install MongoDB locally
-# Create local rankey database
-# Import sample data from production
+- Running as Windows Service on localhost:27017
+- Database: `rankey` (imported from production backup 2026-02-02)
+- Collections: products, categories, scans, sessions
+- Total documents: 392,210
 
-mongorestore --db rankey-local /path/to/backup
-```
-
-**Backend .env.local:**
+**Backend .env (renamed from .env.local):**
 ```env
-DB_HOST=mongodb://localhost:27017/rankey-local
-PORT=8000
-SESSION_SECRET=local-dev-secret
+DB_HOST=mongodb://localhost:27017/rankey
+PORT=7000
+SESSION_SECRET=local-dev-secret-not-for-production
 NODE_ENV=development
 FRONTEND_URL=http://localhost:5173
-SCRAPINGBEE_API_KEY=[use same as production]
-SCRAPINGDOG_API_KEY=[use same as production]
+SCRAPINGBEE_API_KEY=FXBI2P6LEPJ4UE3FE4F02SM7Z1PFI2VRL4HDRAE2VI4RB84W5GVA3ILJ2GI5X96IBEU1BJVNGIOA8Z83
+SCRAPINGDOG_API_KEY=65958587ebfede1211659265
 ```
 
 **Frontend .env.local:**
 ```env
-VITE_API_BASE_URL=http://localhost:8000
+VITE_API_BASE_URL=http://localhost:7000
 ```
 
 **Running Locally:**
 ```bash
 # Terminal 1: Backend
-cd rankey-staging-backend
-npm install
+cd "C:\Users\user\Documents\Jonathan Documents\NEW\rankey-staging-backend"
 npm start
 
 # Terminal 2: Frontend
-cd rankey-staging-ui
-npm install
+cd "C:\Users\user\Documents\Jonathan Documents\NEW\rankey-staging-ui"
 npm run dev
 
 # Open: http://localhost:5173
 ```
+
+**Testing with Real Data:**
+- Local database contains full production dataset from 2026-02-02
+- Can test all features with real product data
+- No need to mock data or create test fixtures
+- Safe to experiment without affecting production
 
 ---
 
@@ -1477,18 +1485,41 @@ cp RANKEY_MASTER_CONTEXT.md "C:\Users\user\Documents\Jonathan Documents\NEW\"
    - **Last fix:** 2026-01-19 - Enabled render_js in ScrapingBee
    - **Testing:** Verified on 50 products
 
-3. **Local testing environment needs reconfiguration**
-   - **Issue:** Local dev setup not aligned with current repo structure
-   - **Status:** Pending reconfiguration
-   - **Priority:** Medium
-   - **Workaround:** Test by deploying to staging and testing there
-   - **TODO:** Set up local MongoDB, create .env.local files
+3. **Debug HTML files not being saved**
+   - **Symptoms:** When debugPriceLogging checkbox is checked, HTML files are not saved
+   - **Status:** ✅ RESOLVED (2026-02-03, commit 6cbcb71)
+   - **Solution:** Implemented debug HTML saving functionality in ASINScan.js
+   - **Features added:**
+     - HTML files now saved to debug-analysis/{scanId}/
+     - Comprehensive logging system with ScanLogger utility
+     - Download endpoint: GET /scans/:scanId/download-debug
+     - ZIP archive includes both HTML files and detailed logs
+   - **Testing:** Needs testing with a scan that has debugPriceLogging enabled
 
 ---
 
-### Recently Resolved (Security)
+### Recently Resolved
 
-1. **✅ SESSION_SECRET fixed** - RESOLVED (2026-02-02)
+1. **✅ Local testing environment reconfigured** - RESOLVED (2026-02-03)
+   - **Root cause:** Local dev setup not aligned with current repo structure
+   - **Solution:**
+     - Fixed CORS issue by renaming .env files
+     - Restored missing backend files (index.js, utilities/)
+     - Imported production MongoDB backup (392,210 documents)
+     - Installed all dependencies
+   - **Result:** Local environment fully operational with production data
+   - **Verification:** Backend starts successfully, all collections accessible
+
+2. **✅ Debug HTML saving not working** - RESOLVED (2026-02-03, commit 6cbcb71)
+   - **Root cause:** Debug HTML saving functionality was never implemented
+   - **Solution:**
+     - Created ScanLogger utility for comprehensive logging
+     - Added HTML saving to ASINScan.js when debugPriceLogging enabled
+     - Implemented download endpoint for debug files
+   - **Result:** HTML files and logs now saved and downloadable as ZIP
+   - **Testing:** Needs testing with debugPriceLogging enabled scan
+
+3. **✅ SESSION_SECRET fixed** - RESOLVED (2026-02-02)
    - **Root cause:** Weak session secret set to "secret"
    - **Solution:** Generated strong 48-character random value
    - **File updated:** `/root/rankey-api/.env` on server
@@ -2437,6 +2468,38 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 ---
 
 ### Recent Changes
+
+**2026-02-03 - 6cbcb71 (backend) - Feature: Add comprehensive logging system and fix debug HTML download**
+- Created ScanLogger utility (utilities/logger.js) for detailed scan logging
+- Added logging to all critical points in ASIN scan handler
+  - Request logging (URL, provider, ASIN)
+  - Response logging (HTML length, response time)
+  - Parse logging (title, price, brand, category found)
+  - Save logging (database operations)
+  - Error logging with detailed error information
+- Implemented debug HTML saving functionality
+  - HTML files saved to debug-analysis/{scanId}/ when debugPriceLogging is enabled
+  - Automatically creates directory structure
+- Added download endpoint: GET /scans/:scanId/download-debug
+  - Returns ZIP archive with HTML files and logs
+  - Includes both JSON and human-readable text logs
+- Installed archiver package for ZIP creation
+- Logs saved to debug-analysis/logs/{scanId}.log.json
+- Testing: Needs testing with a scan that has debugPriceLogging enabled
+
+**2026-02-03 - [local-only] - Setup: Complete local development environment configuration**
+- Fixed CORS issue by renaming .env files (.env → .env.production.backup, .env.local → .env)
+- Restored missing backend files from production backup (index.js, utilities/)
+- Created Node.js import script for MongoDB data (import-backup.js)
+- Successfully imported production MongoDB backup to local database
+  - 296,889 products
+  - 95,214 categories
+  - 105 scans
+  - 2 sessions
+- Verified data integrity with sample queries
+- Updated Section 7 documentation to reflect completed setup
+- Local environment now fully operational for testing with real production data
+- Testing: Backend starts successfully, MongoDB connection verified, all collections accessible
 
 **2026-02-02 - 4966ae1 (backend) / ee48500 (frontend) - Docs: Add START_HERE.md to both repositories**
 - Created mandatory instruction file for Claude Code

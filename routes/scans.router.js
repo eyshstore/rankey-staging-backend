@@ -1,5 +1,8 @@
 const express = require("express");
 const { ScanModel } = require("../collections/scan");
+const fs = require('fs');
+const path = require('path');
+const archiver = require('archiver');
 
 const scansRouter = express.Router();
 
@@ -80,6 +83,71 @@ scansRouter.get("/:scanId/details", async (req, res) => {
   } catch (error) {
     console.log(`DETAILS ERROR: ${error}`);
     res.status(error.statusCode).json({ message: error.message });
+  }
+});
+
+scansRouter.get("/:scanId/download-debug", async (req, res) => {
+  const { scanId } = req.params;
+
+  try {
+    const debugDir = path.join(__dirname, '../debug-analysis');
+    const htmlDir = path.join(debugDir, scanId);
+    const logFile = path.join(debugDir, 'logs', `${scanId}.log.json`);
+
+    // Check if any debug files exist
+    const htmlDirExists = fs.existsSync(htmlDir);
+    const logFileExists = fs.existsSync(logFile);
+
+    if (!htmlDirExists && !logFileExists) {
+      return res.status(404).json({
+        message: 'No debug files found for this scan. Debug mode may not have been enabled.'
+      });
+    }
+
+    // Create ZIP with both HTML files and logs
+    const archive = archiver('zip', {
+      zlib: { level: 9 } // Maximum compression
+    });
+
+    res.attachment(`scan-${scanId}-debug.zip`);
+    archive.pipe(res);
+
+    // Add HTML files if they exist
+    if (htmlDirExists) {
+      const files = fs.readdirSync(htmlDir);
+      if (files.length > 0) {
+        archive.directory(htmlDir, 'html');
+        console.log(`[Download Debug] Adding ${files.length} HTML files from ${htmlDir}`);
+      }
+    }
+
+    // Add log files
+    if (logFileExists) {
+      const logContent = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+
+      // Add JSON log
+      archive.append(JSON.stringify(logContent, null, 2), { name: 'scan.log.json' });
+
+      // Create and add human-readable text log
+      const textLog = logContent.logs.map(entry => {
+        let line = `[${entry.timestamp}] [${entry.category}]`;
+        if (entry.level) line += ` [${entry.level}]`;
+        line += ` ${entry.message}`;
+        if (entry.data) line += `\n${entry.data}`;
+        if (entry.error) line += `\nError: ${entry.error.message}\n${entry.error.stack}`;
+        return line;
+      }).join('\n\n');
+      archive.append(textLog, { name: 'scan.log' });
+
+      console.log(`[Download Debug] Adding log files for scan ${scanId}`);
+    }
+
+    archive.finalize();
+
+    console.log(`[Download Debug] Created debug ZIP for scan ${scanId}`);
+  } catch (error) {
+    console.error(`[Download Debug] Error creating debug ZIP:`, error);
+    res.status(500).json({ message: 'Error creating debug archive', error: error.message });
   }
 });
 

@@ -2469,6 +2469,20 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 
 ### Recent Changes
 
+**2026-02-03 - 17f0437 (backend) / cc93618 (frontend) - Feature: Complete logging system for all scan types**
+- Extended logging to CategoryScan and DealsScan (in addition to ASINScan)
+- All three scan types now save HTML files when debugPriceLogging enabled
+- Comprehensive logging captures:
+  - Category page requests and responses
+  - Product requests and responses
+  - Parsing results with all extracted fields
+  - Error details with full context
+  - Scan completion statistics
+- Fixed frontend download button endpoint (was /debug-zip, now /download-debug)
+- Download button now always visible for completed scans
+- Added user-friendly error messages when no debug files available
+- Testing: Needs testing with category and deals scans with debugPriceLogging enabled
+
 **2026-02-03 - 6cbcb71 (backend) - Feature: Add comprehensive logging system and fix debug HTML download**
 - Created ScanLogger utility (utilities/logger.js) for detailed scan logging
 - Added logging to all critical points in ASIN scan handler

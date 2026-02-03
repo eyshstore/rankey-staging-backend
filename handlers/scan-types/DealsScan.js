@@ -9,6 +9,9 @@ const { HttpError } = require("../../utilities/HttpError");
 const puppeteer = require("puppeteer");
 const { parseProductData } = require("../pages-parser");
 const { getScrapingProviderManager } = require("../../providers/ScrapingProviderManager");
+const ScanLogger = require("../../utilities/logger");
+const fs = require('fs');
+const path = require('path');
 
 class DealsScan extends Scan {
   constructor() {
@@ -20,6 +23,8 @@ class DealsScan extends Scan {
     this.productPagesRequestsSucceeded = 0;
     this.productASINsBeingRequested = new Set();
     this.completedGatheringASINs = false;
+    this.logger = null;
+    this.debugHtmlDir = null;
 
     this.handleProductPageSuccess = this.handleProductPageSuccess.bind(this);
     this.handleProductPageError = this.handleProductPageError.bind(this);
@@ -106,12 +111,32 @@ class DealsScan extends Scan {
       maxConcurrentRequests: config.maxConcurrentRequests,
       maxRequests: config.maxRequests,
       maxRerequests: config.maxRerequests,
+      debugPriceLogging: config.debugPriceLogging || false,
 
       mainCategoryId: config.mainCategoryId,
       mainCategoryNodeId: config.mainCategoryNodeId,
     };
 
     console.log(`⚙️ Initializing scan for ${config.numberOfProductsToGather} products on ${config.domain}`);
+
+    // Initialize logger
+    this.logger = new ScanLogger(scan._id, 'DEALS');
+    this.logger.log('SCAN', 'Starting deals scan', {
+      scanId: scan._id,
+      domain: config.domain,
+      debugPriceLogging: this.config.debugPriceLogging,
+      numberOfProductsToGather: config.numberOfProductsToGather,
+      mainCategoryId: config.mainCategoryId
+    });
+
+    // Setup debug HTML directory if debug mode is enabled
+    if (this.config.debugPriceLogging) {
+      this.debugHtmlDir = path.join(__dirname, '../../debug-analysis', scan._id.toString());
+      if (!fs.existsSync(this.debugHtmlDir)) {
+        fs.mkdirSync(this.debugHtmlDir, { recursive: true });
+      }
+      this.logger.log('DEBUG', 'Debug HTML directory created', { path: this.debugHtmlDir });
+    }
 
     const provider = getScrapingProviderManager().selectedScrapingProvider;
     if (provider.hasConcurrencyInfo()) {
@@ -271,7 +296,55 @@ class DealsScan extends Scan {
     const productPageUrl = `https://www.amazon.${this.config.domain}/dp/${product.ASIN}`;
     this.productASINsBeingRequested.add(product.ASIN);
     console.log(`📤 Requesting product page: ${product.ASIN}`);
-    await this.requestPage(productPageUrl, this.handleProductPageSuccess, this.handleProductPageError, product);
+
+    this.logger.log('REQUEST', `Requesting product: ${product.ASIN}`, {
+      asin: product.ASIN,
+      url: productPageUrl,
+      discount: product.discount
+    });
+
+    await this.requestPageWithHtml(productPageUrl, this.handleProductPageSuccess, this.handleProductPageError, product);
+  }
+
+  async requestPageWithHtml(url, successCallback, errorCallback, product) {
+    const requestedAt = Date.now();
+    try {
+      this.sentRequests++;
+      if (this.sentRequests == this.config.maxRequests) {
+        this.setState("halting");
+        console.log(`⛔ Max requests reached: ${this.config.maxRequests}`);
+      }
+
+      const html = await getScrapingProviderManager().getPage(url);
+      const receivedAt = Date.now();
+
+      this.logger.log('RESPONSE', `Product received: ${product.ASIN}`, {
+        asin: product.ASIN,
+        htmlLength: html?.length || 0,
+        responseTime: receivedAt - requestedAt
+      });
+
+      // Save HTML if debug mode is enabled
+      if (this.config.debugPriceLogging && html && this.debugHtmlDir) {
+        const filename = `product_${product.ASIN}.html`;
+        const filepath = path.join(this.debugHtmlDir, filename);
+        fs.writeFileSync(filepath, html);
+        this.logger.log('DEBUG', `HTML saved for product ${product.ASIN}`, {
+          filepath,
+          size: html.length
+        });
+      }
+
+      const cheerio = require('cheerio');
+      const $ = cheerio.load(html);
+
+      // Not waiting for the handler
+      successCallback($, requestedAt, receivedAt, product);
+    } catch (err) {
+      this.logger.error('REQUEST-ERROR', `Request failed for ${product.ASIN}`, err);
+      // Not waiting for the handler
+      errorCallback(err, requestedAt, Date.now(), product);
+    }
   }
 
   async handleProductPageSuccess($, requestedAt, receivedAt, product) {
@@ -280,14 +353,36 @@ class DealsScan extends Scan {
     console.log(`📈 Product gathered: ${product.ASIN}, total: ${this.productsGathered}/${this.config.numberOfProductsToGather}`);
     this.productASINsBeingRequested.delete(product.ASIN);
     console.log(`✅ Product page success: ${product.ASIN}`);
-    if (this.productsGathered == this.config.numberOfProductsToGather) {
-      console.log(`🎉 Target reached! ${this.productsGathered}/${this.config.numberOfProductsToGather} products gathered`);
-      this.setState("halting");
-    }
+
+    this.logger.log('PARSE', `Parsing product data for ${product.ASIN}`);
+
     const productData = parseProductData($);
     productData.discountCoupon = product.discount;
+
+    this.logger.log('PARSE', `Parse complete for ${product.ASIN}`, {
+      asin: product.ASIN,
+      titleFound: !!productData.title,
+      title: productData.title || 'EMPTY',
+      priceFound: !!productData.price,
+      price: productData.price || 'EMPTY',
+      brand: productData.brand || 'EMPTY',
+      category: productData.category || 'EMPTY',
+      rank: productData.rank || 'EMPTY',
+      hasCoupon: productData.discountCoupon ? 'YES' : 'NO',
+      discount: product.discount
+    });
+
+    if (this.productsGathered == this.config.numberOfProductsToGather) {
+      console.log(`🎉 Target reached! ${this.productsGathered}/${this.config.numberOfProductsToGather} products gathered`);
+      this.logger.log('COMPLETE', `Target reached: ${this.productsGathered} products gathered`);
+      this.setState("halting");
+    }
+
     this.onRequestEnd();
+
+    this.logger.log('SAVE', `Saving product ${product.ASIN} to database`);
     const productId = await this.recordProductToDb(product.ASIN, { requestedAt, receivedAt, ...productData, sentRequests: product.rerequests + 1 });
+    this.logger.log('SAVE', `Product saved: ${product.ASIN}`, { productId: productId.toString() });
     await ScanModel.findByIdAndUpdate(this.config.id, { $addToSet: { products: productId } }).then(() => console.log(`💾 Product ${productId} recorded to scan ${this.config.id}`));
   }
 
@@ -295,6 +390,14 @@ class DealsScan extends Scan {
     this.errorStats = this.errorStats || {};
     this.errorStats[error.statusCode] = (this.errorStats[error.statusCode] || 0) + 1;
     console.log(`❌ Product page error: ${product.ASIN}, status: ${error.statusCode}, error: ${error.message}`);
+
+    this.logger.error('PRODUCT-ERROR', `Failed to process product ${product.ASIN}`, error);
+    this.logger.log('ERROR-DETAILS', `Error details for product ${product.ASIN}`, {
+      asin: product.ASIN,
+      statusCode: error.statusCode,
+      errorMessage: error.message,
+      rerequests: product.rerequests
+    });
 
     switch (error.statusCode) {
       case 401:
@@ -351,15 +454,28 @@ class DealsScan extends Scan {
         switch (this.state) {
           case "halting":
             console.log(`🎊 Scan completed successfully!`);
+            const duration = Date.now() - this.config.startedAt;
+            this.logger.log('COMPLETE', 'Deals scan completed', {
+              totalRequests: this.sentRequests,
+              productsGathered: this.productsGathered,
+              targetProducts: this.config.numberOfProductsToGather,
+              duration: `${Math.round(duration / 1000)}s`
+            });
+
+            // Save log file
+            const logFile = this.logger.saveToFile();
+            console.log(`[DealsScan] Log file saved: ${logFile}`);
+
             this.setState("completed");
             break;
           case "stalling":
             console.log(`⚠️ Scan stalled`);
+            this.logger.log('COMPLETE', 'Scan stalling - waiting for resolution');
             this.setState("stalled");
             break;
         }
       }
-    }    
+    }
   }
 
   async getActiveScanDetails() {

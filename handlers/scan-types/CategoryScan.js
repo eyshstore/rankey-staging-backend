@@ -10,6 +10,9 @@ const { getScrapingProviderManager } = require("../../providers/ScrapingProvider
 const { notifyScansUpdate } = require("../../routes/sse/scans-list");
 
 const { HttpError } = require("../../utilities/HttpError");
+const ScanLogger = require("../../utilities/logger");
+const fs = require('fs');
+const path = require('path');
 
 class CategoryScan extends Scan {
   constructor() {
@@ -26,6 +29,10 @@ class CategoryScan extends Scan {
     this.productsQueue = [];
     this.checkedASINs = new Set();
     this.averageNumberOfProductsOnCategoryPage = 24;
+
+    // Logging and Debug
+    this.logger = null;
+    this.debugHtmlDir = null;
 
     // Bindings
     this.handleCategoryPageSuccess = this.handleCategoryPageSuccess.bind(this);
@@ -157,6 +164,7 @@ class CategoryScan extends Scan {
       maxConcurrentRequests: config.maxConcurrentRequests,
       maxRequests: config.maxRequests,
       maxRerequests: config.maxRerequests,
+      debugPriceLogging: config.debugPriceLogging || false,
 
       mainCategoryId: config.mainCategoryId,
       numberOfProductsToGather: config.numberOfProductsToGather,
@@ -166,6 +174,28 @@ class CategoryScan extends Scan {
       minRank: config.minRank,
       maxRank: config.maxRank,
     };
+
+    // Initialize logger
+    this.logger = new ScanLogger(scan._id, 'CATEGORY');
+    this.logger.log('SCAN', 'Starting category scan', {
+      scanId: scan._id,
+      mainCategoryId: config.mainCategoryId,
+      domain: config.domain,
+      debugPriceLogging: this.config.debugPriceLogging,
+      numberOfProductsToGather: config.numberOfProductsToGather,
+      strategy: config.strategy,
+      minRank: config.minRank,
+      maxRank: config.maxRank
+    });
+
+    // Setup debug HTML directory if debug mode is enabled
+    if (this.config.debugPriceLogging) {
+      this.debugHtmlDir = path.join(__dirname, '../../debug-analysis', scan._id.toString());
+      if (!fs.existsSync(this.debugHtmlDir)) {
+        fs.mkdirSync(this.debugHtmlDir, { recursive: true });
+      }
+      this.logger.log('DEBUG', 'Debug HTML directory created', { path: this.debugHtmlDir });
+    }
 
     const provider = getScrapingProviderManager().selectedScrapingProvider;
     if (provider.hasConcurrencyInfo()) {
@@ -252,11 +282,29 @@ class CategoryScan extends Scan {
   
     await Promise.all(this.concurrentRequests);
     console.log("🏁 All concurrent requests are completed");
-  
+
     if (this.state == "stalling") {
+      this.logger.log('COMPLETE', 'Scan stalling - waiting for resolution');
       this.setState("stalled");
       console.log(`🛑 Scan stalled: ${this.config.id}`);
     } else if (this.state == "halting" || this.unscannedCategories.length == 0) {
+      const duration = Date.now() - this.config.startedAt;
+      this.logger.log('COMPLETE', 'Category scan completed', {
+        totalRequests: this.sentRequests,
+        categoryPagesRequested: this.categoryPagesRequestsSent,
+        categoryPagesSucceeded: this.categoryPagesRequestsSucceeded,
+        productPagesRequested: this.productPagesRequestsSent,
+        productPagesSucceeded: this.productPagesRequestsSucceeded,
+        productsGathered: this.productsGathered,
+        targetProducts: this.config.numberOfProductsToGather,
+        duration: `${Math.round(duration / 1000)}s`,
+        reason: this.state === "halting" ? "max_products_or_requests" : "all_categories_scanned"
+      });
+
+      // Save log file
+      const logFile = this.logger.saveToFile();
+      console.log(`[CategoryScan] Log file saved: ${logFile}`);
+
       this.setState("completed");
       console.log(`✅ Scan completed: ${this.config.id}`);
     }
@@ -459,7 +507,15 @@ class CategoryScan extends Scan {
     this.categoryPagesBeingRequested.push({ name: category.name, page: category.currentPage });
     this.categoryPagesRequestsSent += 1;
     console.log(`📤 Requesting category page: ${category.name}, page: ${category.currentPage}`);
-    await this.requestPage(categoryPageUrl, this.handleCategoryPageSuccess, this.handleCategoryPageError, category);
+
+    this.logger.log('REQUEST', `Requesting category page: ${category.name}, page: ${category.currentPage}`, {
+      category: category.name,
+      page: category.currentPage,
+      url: categoryPageUrl,
+      nodeId: category.nodeId
+    });
+
+    await this.requestPageWithHtml(categoryPageUrl, this.handleCategoryPageSuccess, this.handleCategoryPageError, category, 'category');
   }
 
   async requestProductPage() {
@@ -468,7 +524,77 @@ class CategoryScan extends Scan {
     this.productASINsBeingRequested.push(product.ASIN);
     this.productPagesRequestsSent += 1;
     console.log(`📤 Requesting product page: ${product.ASIN}`);
-    await this.requestPage(productPageUrl, this.handleProductPageSuccess, this.handleProductPageError, product);
+
+    this.logger.log('REQUEST', `Requesting product: ${product.ASIN}`, {
+      asin: product.ASIN,
+      url: productPageUrl
+    });
+
+    await this.requestPageWithHtml(productPageUrl, this.handleProductPageSuccess, this.handleProductPageError, product, 'product');
+  }
+
+  async requestPageWithHtml(url, successCallback, errorCallback, context, pageType) {
+    const requestedAt = Date.now();
+    try {
+      this.sentRequests++;
+      if (this.sentRequests == this.config.maxRequests) {
+        this.setState("halting");
+        if (this.stopAllConcurrentRequests) {
+          this.stopAllConcurrentRequests();
+        }
+        console.log(`⛔ Max requests reached: ${this.config.maxRequests}`);
+      }
+
+      const html = await getScrapingProviderManager().getPage(url);
+      const receivedAt = Date.now();
+
+      if (pageType === 'category') {
+        this.logger.log('RESPONSE', `Category page received: ${context.name}`, {
+          category: context.name,
+          page: context.currentPage,
+          htmlLength: html?.length || 0,
+          responseTime: receivedAt - requestedAt
+        });
+
+        // Save HTML if debug mode is enabled
+        if (this.config.debugPriceLogging && html && this.debugHtmlDir) {
+          const filename = `category_${context.name.replace(/[^a-z0-9]/gi, '_')}_page${context.currentPage}.html`;
+          const filepath = path.join(this.debugHtmlDir, filename);
+          fs.writeFileSync(filepath, html);
+          this.logger.log('DEBUG', `HTML saved for category ${context.name} page ${context.currentPage}`, {
+            filepath,
+            size: html.length
+          });
+        }
+      } else if (pageType === 'product') {
+        this.logger.log('RESPONSE', `Product received: ${context.ASIN}`, {
+          asin: context.ASIN,
+          htmlLength: html?.length || 0,
+          responseTime: receivedAt - requestedAt
+        });
+
+        // Save HTML if debug mode is enabled
+        if (this.config.debugPriceLogging && html && this.debugHtmlDir) {
+          const filename = `product_${context.ASIN}.html`;
+          const filepath = path.join(this.debugHtmlDir, filename);
+          fs.writeFileSync(filepath, html);
+          this.logger.log('DEBUG', `HTML saved for product ${context.ASIN}`, {
+            filepath,
+            size: html.length
+          });
+        }
+      }
+
+      const cheerio = require('cheerio');
+      const $ = cheerio.load(html);
+
+      // Not waiting for the handler
+      successCallback($, requestedAt, receivedAt, context);
+    } catch (err) {
+      this.logger.error('REQUEST-ERROR', `Request failed for ${pageType}`, err);
+      // Not waiting for the handler
+      errorCallback(err, requestedAt, Date.now(), context);
+    }
   }
 
   getUnscannedCategory() {
@@ -492,6 +618,8 @@ class CategoryScan extends Scan {
     this.categoryPagesRequestsSucceeded += 1;
     console.log(`✅ Category page success: ${category.name}, page: ${category.currentPage}`);
 
+    this.logger.log('PARSE', `Parsing category page: ${category.name}, page: ${category.currentPage}`);
+
     const { ASINs, proxyCountry } = parseCategoryPage($);
 
     const uniqueASINs = [...new Set(ASINs)];
@@ -499,6 +627,15 @@ class CategoryScan extends Scan {
     this.productsQueue.push(...uncheckedUniqueASINs.map(ASIN => ({ ASIN, rerequests: 0 })));
     this.checkedASINs = new Set([...this.checkedASINs, ...uncheckedUniqueASINs]);
     console.log(`📥 Added products to queue: ${uncheckedUniqueASINs.length}`);
+
+    this.logger.log('PARSE', `Category page parsed: ${category.name}`, {
+      category: category.name,
+      page: category.currentPage,
+      productsFound: ASINs.length,
+      uniqueProducts: uniqueASINs.length,
+      newProducts: uncheckedUniqueASINs.length,
+      proxyCountry
+    });
 
     const categoryEntry = { name: category.name, nodeId: category.nodeId, page: category.currentPage, proxyCountry, domain: this.config.domain, sentRequests: category.rerequests + 1, status: "recorded", requestedAt, receivedAt, ASINs, };
     ScanModel.findByIdAndUpdate(this.config.id, { $push: { categories: categoryEntry, } }).then(() => console.log(`Successfully recorded category ${category.name}, page: ${category.currentPage} to scan ${this.config.id}`));
@@ -539,6 +676,15 @@ class CategoryScan extends Scan {
     this.errorStats[error.statusCode] = (this.errorStats[error.statusCode] || 0) + 1;
     console.log(`❌ Category page error: ${category.name}, status: ${error.statusCode}, error: ${error}`);
 
+    this.logger.error('CATEGORY-ERROR', `Failed to process category ${category.name}`, error);
+    this.logger.log('ERROR-DETAILS', `Error details for category ${category.name}`, {
+      category: category.name,
+      page: category.currentPage,
+      statusCode: error.statusCode,
+      errorMessage: error.message,
+      rerequests: category.rerequests
+    });
+
     this.categoryPagesBeingRequested.splice(this.categoryPagesBeingRequested.findIndex(c => (c.name == category.name && c.page == category.currentPage)), 1);
 
     const categoryEntry = { name: category.name, nodeId: category.nodeId, page: category.currentPage, domain: this.config.domain, sentRequests: category.rerequests + 1, };
@@ -575,22 +721,53 @@ class CategoryScan extends Scan {
     this.productASINsBeingRequested.splice(this.productASINsBeingRequested.findIndex(productASIN => productASIN == product.ASIN), 1);
     console.log(`✅ Product page success: ${product.ASIN}`);
 
+    this.logger.log('PARSE', `Parsing product data for ${product.ASIN}`);
+
     const productData = parseProductData($);
+
+    this.logger.log('PARSE', `Parse complete for ${product.ASIN}`, {
+      asin: product.ASIN,
+      titleFound: !!productData.title,
+      title: productData.title || 'EMPTY',
+      priceFound: !!productData.price,
+      price: productData.price || 'EMPTY',
+      brand: productData.brand || 'EMPTY',
+      category: productData.category || 'EMPTY',
+      rank: productData.rank || 'EMPTY',
+      hasCoupon: productData.discountCoupon ? 'YES' : 'NO',
+      rankInRange: productData.rank >= this.config.minRank && productData.rank <= this.config.maxRank
+    });
 
     if (productData.rank >= this.config.minRank && productData.rank <= this.config.maxRank) {
       this.productsGathered += 1;
       console.log(`📈 Product gathered: ${product.ASIN}, total: ${this.productsGathered}`);
+      this.logger.log('GATHER', `Product counted: ${product.ASIN}`, {
+        asin: product.ASIN,
+        rank: productData.rank,
+        productsGathered: this.productsGathered,
+        target: this.config.numberOfProductsToGather
+      });
+
       if (this.productsGathered == this.config.numberOfProductsToGather) {
         this.setState("halting");
         this.stopAllConcurrentRequests();
         console.log(`⛔ Max products gathered, halting: ${this.productsGathered}`);
+        this.logger.log('COMPLETE', `Target reached: ${this.productsGathered} products gathered`);
       }
     } else {
       console.log(`⚠️ Product ASIN: ${product.ASIN} rank ${productData.rank} outside range ${this.config.minRank}-${this.config.maxRank}, adding to scan`);
+      this.logger.log('SKIP', `Product outside rank range: ${product.ASIN}`, {
+        asin: product.ASIN,
+        rank: productData.rank,
+        minRank: this.config.minRank,
+        maxRank: this.config.maxRank
+      });
     }
 
     // Record
+    this.logger.log('SAVE', `Saving product ${product.ASIN} to database`);
     const productId = await this.recordProductToDb(product.ASIN, { requestedAt, receivedAt, ...productData, sentRequests: product.rerequests + 1 });
+    this.logger.log('SAVE', `Product saved: ${product.ASIN}`, { productId: productId.toString() });
     ScanModel.findByIdAndUpdate(this.config.id, { $addToSet: { products: productId } }).then(() => console.log(`Product ${productId} has been recorded to scan ${this.config.id}`));
   }
 
@@ -598,6 +775,14 @@ class CategoryScan extends Scan {
     this.errorStats = this.errorStats || {};
     this.errorStats[error.statusCode] = (this.errorStats[error.statusCode] || 0) + 1;
     console.log(`❌ Product page error: ${product.ASIN}, status: ${error.statusCode}, error: ${error}`);
+
+    this.logger.error('PRODUCT-ERROR', `Failed to process product ${product.ASIN}`, error);
+    this.logger.log('ERROR-DETAILS', `Error details for product ${product.ASIN}`, {
+      asin: product.ASIN,
+      statusCode: error.statusCode,
+      errorMessage: error.message,
+      rerequests: product.rerequests
+    });
 
     this.productASINsBeingRequested.splice(this.productASINsBeingRequested.findIndex(productASIN => productASIN == product.ASIN), 1);
 

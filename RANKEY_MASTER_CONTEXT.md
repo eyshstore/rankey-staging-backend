@@ -2464,6 +2464,21 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 
 ### Recent Changes
 
+**2026-02-03 - [production-hotfix] - Fix: Incorrect ScrapingBee API key causing 401 errors**
+- **Issue:** All scans failing with 401 Unauthorized from ScrapingBee after deployment
+- **Root cause:** Production server had wrong API key in /root/rankey-api/.env
+  - Old (invalid): LT5E88BQTYSA07MZAAB1XOH89B83K5TMMC2TY28EZGEM40U2W8NZRI4TLBTQFY8L9I07J4D9B5EY8DHO
+  - New (correct): FXBI2P6LEPJ4UE3FE4F02SM7Z1PFI2VRL4HDRAE2VI4RB84W5GVA3ILJ2GI5X96IBEU1BJVNGIOA8Z83
+- **Solution:** Updated .env file directly on production server, restarted PM2 with --update-env
+- **Actions:**
+  - SSH to production: `ssh root@5.78.43.96`
+  - Updated SCRAPINGBEE_API_KEY in .env using sed
+  - Verified change applied correctly
+  - Restarted: `pm2 restart rankey-api --update-env`
+  - Confirmed backend restarted successfully
+- **Status:** Fix applied, awaiting user verification with test scan
+- **Note:** This was a production-only configuration fix, no code changes needed
+
 **2026-02-03 - cc0f012 (backend) / cc93618 (frontend) - Deploy: Debug logging system to production**
 - Merged fix/debug-logging-system branch to main for both backend and frontend
 - Backend deployed to production server (5.78.43.96)

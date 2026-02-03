@@ -1485,22 +1485,25 @@ cp RANKEY_MASTER_CONTEXT.md "C:\Users\user\Documents\Jonathan Documents\NEW\"
    - **Last fix:** 2026-01-19 - Enabled render_js in ScrapingBee
    - **Testing:** Verified on 50 products
 
-3. **Debug HTML files not being saved**
-   - **Symptoms:** When debugPriceLogging checkbox is checked, HTML files are not saved
-   - **Status:** ✅ RESOLVED (2026-02-03, commit 6cbcb71)
-   - **Solution:** Implemented debug HTML saving functionality in ASINScan.js
-   - **Features added:**
-     - HTML files now saved to debug-analysis/{scanId}/
-     - Comprehensive logging system with ScanLogger utility
-     - Download endpoint: GET /scans/:scanId/download-debug
-     - ZIP archive includes both HTML files and detailed logs
-   - **Testing:** Needs testing with a scan that has debugPriceLogging enabled
-
 ---
 
 ### Recently Resolved
 
-1. **✅ Local testing environment reconfigured** - RESOLVED (2026-02-03)
+1. **✅ Debug HTML files and logging system** - RESOLVED & DEPLOYED (2026-02-03, commits 6cbcb71, 17f0437, cc0f012)
+   - **Symptoms:** When debugPriceLogging checkbox checked, HTML files were not saved
+   - **Solution:** Implemented complete debug logging system for all scan types
+   - **Features added:**
+     - ScanLogger utility (utilities/logger.js) with comprehensive logging
+     - HTML files saved to debug-analysis/{scanId}/ when debugPriceLogging enabled
+     - Detailed logs saved to debug-analysis/logs/{scanId}.log.json
+     - Download endpoint: GET /scans/:scanId/download-debug
+     - ZIP archive with HTML files + JSON and text logs
+     - Fixed frontend download button endpoint
+   - **Coverage:** ASINScan, CategoryScan, and DealsScan all have full logging
+   - **Deployment:** Successfully deployed to production (backend + frontend)
+   - **Testing:** Ready for testing with debugPriceLogging enabled scans
+
+2. **✅ Local testing environment reconfigured** - RESOLVED (2026-02-03)
    - **Root cause:** Local dev setup not aligned with current repo structure
    - **Solution:**
      - Fixed CORS issue by renaming .env files
@@ -1510,16 +1513,7 @@ cp RANKEY_MASTER_CONTEXT.md "C:\Users\user\Documents\Jonathan Documents\NEW\"
    - **Result:** Local environment fully operational with production data
    - **Verification:** Backend starts successfully, all collections accessible
 
-2. **✅ Debug HTML saving not working** - RESOLVED (2026-02-03, commit 6cbcb71)
-   - **Root cause:** Debug HTML saving functionality was never implemented
-   - **Solution:**
-     - Created ScanLogger utility for comprehensive logging
-     - Added HTML saving to ASINScan.js when debugPriceLogging enabled
-     - Implemented download endpoint for debug files
-   - **Result:** HTML files and logs now saved and downloadable as ZIP
-   - **Testing:** Needs testing with debugPriceLogging enabled scan
-
-3. **✅ SESSION_SECRET fixed** - RESOLVED (2026-02-02)
+2. **✅ SESSION_SECRET fixed** - RESOLVED (2026-02-02)
    - **Root cause:** Weak session secret set to "secret"
    - **Solution:** Generated strong 48-character random value
    - **File updated:** `/root/rankey-api/.env` on server
@@ -1550,12 +1544,13 @@ cp RANKEY_MASTER_CONTEXT.md "C:\Users\user\Documents\Jonathan Documents\NEW\"
 ### Pending Tasks
 
 **Immediate (High Priority):**
-- [ ] Fix SESSION_SECRET - change to strong random value
+- [x] Fix SESSION_SECRET - change to strong random value (COMPLETED 2026-02-02)
+- [x] Reconfigure local testing environment (COMPLETED 2026-02-03)
+- [x] Fix debug HTML download and add logging (COMPLETED 2026-02-03)
 - [ ] Test SSE connection stability
 - [ ] Monitor price extraction accuracy
 
 **Short-term (Medium Priority):**
-- [ ] Reconfigure local testing environment
 - [ ] Update Cloudflare Tunnel to latest version
 - [ ] Set up automated daily backups (cron job)
 - [ ] Document all API endpoints
@@ -2468,6 +2463,20 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 ---
 
 ### Recent Changes
+
+**2026-02-03 - cc0f012 (backend) / cc93618 (frontend) - Deploy: Debug logging system to production**
+- Merged fix/debug-logging-system branch to main for both backend and frontend
+- Backend deployed to production server (5.78.43.96)
+  - Stashed local debug files on server
+  - Pulled latest code from GitHub
+  - Installed archiver dependency
+  - Restarted PM2 successfully
+  - Verified backend running without errors
+- Frontend pushed to GitHub
+  - Render.com auto-deployment triggered
+  - ScansList.jsx endpoint corrected from /debug-zip to /download-debug
+- Complete debug logging now available in production for all scan types
+- Testing: Backend verified running, Render deployment pending verification
 
 **2026-02-03 - 17f0437 (backend) / cc93618 (frontend) - Feature: Complete logging system for all scan types**
 - Extended logging to CategoryScan and DealsScan (in addition to ASINScan)

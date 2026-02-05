@@ -1483,6 +1483,11 @@ cp RANKEY_MASTER_CONTEXT.md "C:\Users\user\Documents\Jonathan Documents\NEW\"
    - **Current accuracy:** ~98% (improved from ~70%)
    - **Status:** Monitoring, ongoing improvement area
    - **Last fix:** 2026-01-19 - Enabled render_js in ScrapingBee
+   - **New debugging tool (2026-02-03, commit 68a0fa2):** Added detailed price extraction logging
+     - Shows every selector attempted, element found status, extracted text, regex matches
+     - Provides HTML samples when price extraction fails
+     - Helps identify why specific products fail (wrong selector, regex issue, missing HTML section)
+     - Branch: improve/price-logging (awaiting approval and merge)
    - **Testing:** Verified on 50 products
 
 ---
@@ -2463,6 +2468,23 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 ---
 
 ### Recent Changes
+
+**2026-02-03 - 68a0fa2 (backend) - Improve: Detailed price extraction logging**
+- Added comprehensive logging to pages-parser.js setPrice() function
+- **PRICE-SECTION logs:** Shows which price section marker found (corePriceDisplay, apex, etc.), section length, sample content
+- **PRICE-SELECTOR logs:** Shows which selector is being tried for each priority level (6 priorities + fallbacks)
+- **PRICE-ELEMENT logs:** Shows whether element found and count of matches
+- **PRICE-TEXT logs:** Shows raw text and HTML extracted from element
+- **PRICE-PARSE logs:** Shows regex pattern, whether it matched, and matched value
+- **PRICE-SUCCESS logs:** Confirms which priority level succeeded with final price value
+- **PRICE-FAIL logs:** Detailed failure information for each priority, final summary with all attempted selectors and HTML samples
+- Applied to all scan types via shared pages-parser.js:
+  - ASINScan.js (line 199): `parseProductData($)`
+  - CategoryScan.js (line 726): `parseProductData($)`
+  - DealsScan.js (line 359): `parseProductData($)`
+- Helps debug why prices aren't found by showing exact selector, text, regex, and HTML at each step
+- Branch: improve/price-logging (not merged yet, awaiting approval)
+- Testing: Needs testing with products that have missing prices
 
 **2026-02-03 - [production-hotfix] - Fix: Incorrect ScrapingBee API key causing 401 errors**
 - **Issue:** All scans failing with 401 Unauthorized from ScrapingBee after deployment

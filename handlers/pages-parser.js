@@ -1,16 +1,16 @@
 const cheerio = require("cheerio");
 
-function parseProductData($) {
+function parseProductData($, logger = null) {
   const product = {};
-  getSimpleFields(product, $);
+  getSimpleFields(product, $, logger);
   extractDataFromTables(product, $);
   return product;
 }
 
-function getSimpleFields(product, $) {
+function getSimpleFields(product, $, logger = null) {
   product["title"] = getTitle($);
   setBrand(product, $);
-  setPrice(product, $);
+  setPrice(product, $, logger);
   product["category"] = getCategory($);
   product["isPrime"] = getPrime($);
   product["availabilityStatus"] = getAvailabilityStatus($);
@@ -75,11 +75,14 @@ function validateCurrencyUSD(html, pricePosition) {
   return true;
 }
 
-function extractPriceSection(html) {
+function extractPriceSection(html, logger = null) {
   // Strategy: Find section start markers and extract a reasonable chunk
   // This avoids matching prices from shipping, carousels, or other sections
 
-  console.log(`[PRICE-SECTION] Starting section extraction, HTML length: ${html.length}`);
+  if (logger) {
+    logger.log('PRICE-SECTION', 'Starting section extraction', { htmlLength: html.length });
+  }
+
   const sectionMarkers = [
     { name: 'corePriceDisplay_desktop', marker: 'id="corePriceDisplay_desktop_feature_div"' },
     { name: 'apex_desktop', marker: 'id="apex_desktop"' },
@@ -88,114 +91,239 @@ function extractPriceSection(html) {
 
   for (const { name, marker } of sectionMarkers) {
     const startIdx = html.indexOf(marker);
-    console.log(`[PRICE-SECTION] Checking for '${name}' marker: ${startIdx !== -1 ? `FOUND at index ${startIdx}` : 'NOT FOUND'}`);
+    if (logger) {
+      logger.log('PRICE-SECTION', `Checking for '${name}' marker`, {
+        marker: name,
+        found: startIdx !== -1,
+        index: startIdx !== -1 ? startIdx : null
+      });
+    }
     if (startIdx !== -1) {
       // Extract up to 50KB from the start of this section
       const section = html.substring(startIdx, Math.min(html.length, startIdx + 50000));
-      console.log(`[PRICE-SECTION] Using '${name}' section (${section.length} chars)`);
-      console.log(`[PRICE-SECTION] Section sample (first 500 chars): ${section.substring(0, 500)}`);
+      if (logger) {
+        logger.log('PRICE-SECTION', `Using '${name}' section`, {
+          sectionName: name,
+          sectionLength: section.length,
+          sectionSample: section.substring(0, 500)
+        });
+      }
       return { section, source: name };
     }
   }
 
   // Fallback: return full HTML
-  console.log(`[PRICE-SECTION] No specific price section found, using full HTML (${html.length} chars)`);
-  console.log(`[PRICE-SECTION] Full HTML sample (first 1000 chars): ${html.substring(0, 1000)}`);
+  if (logger) {
+    logger.log('PRICE-SECTION', 'No specific price section found, using full HTML', {
+      htmlLength: html.length,
+      htmlSample: html.substring(0, 1000)
+    });
+  }
   return { section: html, source: 'fullHtml' };
 }
 
-function setPrice(product, $) {
+function setPrice(product, $, logger = null) {
   const fullHtml = $.html();
-  console.log(`[PRICE-EXTRACT] Starting price extraction, HTML length: ${fullHtml.length}`);
+  if (logger) {
+    logger.log('PRICE-EXTRACT', 'Starting price extraction', { htmlLength: fullHtml.length });
+  }
 
   // STEP 1: Extract the main price section to avoid shipping costs, carousels, etc.
-  const { section: priceHtml, source } = extractPriceSection(fullHtml);
+  const { section: priceHtml, source } = extractPriceSection(fullHtml, logger);
   const $price = cheerio.load(priceHtml);
-  console.log(`[PRICE-SECTION] Using section: ${source}, section length: ${priceHtml.length}`);
+  if (logger) {
+    logger.log('PRICE-SECTION', 'Using price section', { source, sectionLength: priceHtml.length });
+  }
 
   // PRIORITY 1: priceToPay - get FIRST element only from price section
-  console.log(`[PRICE-SELECTOR] PRIORITY 1: Trying selector ".priceToPay .a-offscreen"`);
+  if (logger) {
+    logger.log('PRICE-SELECTOR', 'Trying PRIORITY 1 selector', { selector: '.priceToPay .a-offscreen' });
+  }
   const priceToPayEl = $price(".priceToPay .a-offscreen").first();
-  console.log(`[PRICE-ELEMENT] PRIORITY 1: Element found: ${priceToPayEl.length > 0}, count: ${$price(".priceToPay .a-offscreen").length}`);
+  if (logger) {
+    logger.log('PRICE-ELEMENT', 'PRIORITY 1 element search', {
+      priority: 1,
+      elementFound: priceToPayEl.length > 0,
+      count: $price(".priceToPay .a-offscreen").length
+    });
+  }
   if (priceToPayEl.length > 0) {
     const priceText = priceToPayEl.text().trim();
     const rawHtml = priceToPayEl.html();
-    console.log(`[PRICE-TEXT] PRIORITY 1: Raw text: "${priceText}", raw HTML: "${rawHtml?.substring(0, 200)}"`);
+    if (logger) {
+      logger.log('PRICE-TEXT', 'PRIORITY 1 text extracted', {
+        priority: 1,
+        rawText: priceText,
+        rawHtml: rawHtml?.substring(0, 200)
+      });
+    }
     const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
-    console.log(`[PRICE-PARSE] PRIORITY 1: Regex match: ${!!priceMatch}, matched value: ${priceMatch ? priceMatch[1] : 'null'}`);
+    if (logger) {
+      logger.log('PRICE-PARSE', 'PRIORITY 1 regex parse', {
+        priority: 1,
+        regexMatched: !!priceMatch,
+        matchedValue: priceMatch ? priceMatch[1] : null
+      });
+    }
     if (priceMatch) {
       const priceValue = priceMatch[1].replace(/,/g, '');
-      console.log(`[PRICE-SUCCESS] PRIORITY 1 matched: ${priceValue} (from ${source})`);
+      if (logger) {
+        logger.log('PRICE-SUCCESS', 'PRIORITY 1 matched', { priority: 1, price: priceValue, source });
+      }
       product["price"] = "$" + priceValue;
       return;
     } else {
-      console.log(`[PRICE-FAIL] PRIORITY 1: Text found but regex failed, text: "${priceText}"`);
+      if (logger) {
+        logger.log('PRICE-FAIL', 'PRIORITY 1 text found but regex failed', { priority: 1, text: priceText });
+      }
     }
   }
 
   // PRIORITY 2: Standard a-offscreen - get FIRST only from price section
-  console.log(`[PRICE-SELECTOR] PRIORITY 2: Trying selector ".a-price .a-offscreen"`);
+  if (logger) {
+    logger.log('PRICE-SELECTOR', 'Trying PRIORITY 2 selector', { selector: '.a-price .a-offscreen' });
+  }
   const offscreenEl = $price(".a-price .a-offscreen").first();
-  console.log(`[PRICE-ELEMENT] PRIORITY 2: Element found: ${offscreenEl.length > 0}, count: ${$price(".a-price .a-offscreen").length}`);
+  if (logger) {
+    logger.log('PRICE-ELEMENT', 'PRIORITY 2 element search', {
+      priority: 2,
+      elementFound: offscreenEl.length > 0,
+      count: $price(".a-price .a-offscreen").length
+    });
+  }
   if (offscreenEl.length > 0) {
     const priceText = offscreenEl.text().trim();
     const rawHtml = offscreenEl.html();
-    console.log(`[PRICE-TEXT] PRIORITY 2: Raw text: "${priceText}", raw HTML: "${rawHtml?.substring(0, 200)}"`);
+    if (logger) {
+      logger.log('PRICE-TEXT', 'PRIORITY 2 text extracted', {
+        priority: 2,
+        rawText: priceText,
+        rawHtml: rawHtml?.substring(0, 200)
+      });
+    }
     const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
-    console.log(`[PRICE-PARSE] PRIORITY 2: Regex match: ${!!priceMatch}, matched value: ${priceMatch ? priceMatch[1] : 'null'}`);
+    if (logger) {
+      logger.log('PRICE-PARSE', 'PRIORITY 2 regex parse', {
+        priority: 2,
+        regexMatched: !!priceMatch,
+        matchedValue: priceMatch ? priceMatch[1] : null
+      });
+    }
     if (priceMatch) {
-      console.log(`[PRICE-SUCCESS] PRIORITY 2 matched: ${priceMatch[1]} (from ${source})`);
+      if (logger) {
+        logger.log('PRICE-SUCCESS', 'PRIORITY 2 matched', { priority: 2, price: priceMatch[1], source });
+      }
       product["price"] = "$" + priceMatch[1].replace(/,/g, '');
       return;
     } else {
-      console.log(`[PRICE-FAIL] PRIORITY 2: Text found but regex failed, text: "${priceText}"`);
+      if (logger) {
+        logger.log('PRICE-FAIL', 'PRIORITY 2 text found but regex failed', { priority: 2, text: priceText });
+      }
     }
   }
 
   // PRIORITY 3: reinventPricePriceToPayMargin - get FIRST only from price section
-  console.log(`[PRICE-SELECTOR] PRIORITY 3: Trying selector ".a-price.reinventPricePriceToPayMargin.priceToPay .a-offscreen"`);
+  if (logger) {
+    logger.log('PRICE-SELECTOR', 'Trying PRIORITY 3 selector', { selector: '.a-price.reinventPricePriceToPayMargin.priceToPay .a-offscreen' });
+  }
   const reinventEl = $price(".a-price.reinventPricePriceToPayMargin.priceToPay .a-offscreen").first();
-  console.log(`[PRICE-ELEMENT] PRIORITY 3: Element found: ${reinventEl.length > 0}, count: ${$price(".a-price.reinventPricePriceToPayMargin.priceToPay .a-offscreen").length}`);
+  if (logger) {
+    logger.log('PRICE-ELEMENT', 'PRIORITY 3 element search', {
+      priority: 3,
+      elementFound: reinventEl.length > 0,
+      count: $price(".a-price.reinventPricePriceToPayMargin.priceToPay .a-offscreen").length
+    });
+  }
   if (reinventEl.length > 0) {
     const priceText = reinventEl.text().trim();
     const rawHtml = reinventEl.html();
-    console.log(`[PRICE-TEXT] PRIORITY 3: Raw text: "${priceText}", raw HTML: "${rawHtml?.substring(0, 200)}"`);
+    if (logger) {
+      logger.log('PRICE-TEXT', 'PRIORITY 3 text extracted', {
+        priority: 3,
+        rawText: priceText,
+        rawHtml: rawHtml?.substring(0, 200)
+      });
+    }
     const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
-    console.log(`[PRICE-PARSE] PRIORITY 3: Regex match: ${!!priceMatch}, matched value: ${priceMatch ? priceMatch[1] : 'null'}`);
+    if (logger) {
+      logger.log('PRICE-PARSE', 'PRIORITY 3 regex parse', {
+        priority: 3,
+        regexMatched: !!priceMatch,
+        matchedValue: priceMatch ? priceMatch[1] : null
+      });
+    }
     if (priceMatch) {
-      console.log(`[PRICE-SUCCESS] PRIORITY 3 matched: ${priceMatch[1]} (from ${source})`);
+      if (logger) {
+        logger.log('PRICE-SUCCESS', 'PRIORITY 3 matched', { priority: 3, price: priceMatch[1], source });
+      }
       product["price"] = "$" + priceMatch[1].replace(/,/g, '');
       return;
     } else {
-      console.log(`[PRICE-FAIL] PRIORITY 3: Text found but regex failed, text: "${priceText}"`);
+      if (logger) {
+        logger.log('PRICE-FAIL', 'PRIORITY 3 text found but regex failed', { priority: 3, text: priceText });
+      }
     }
   }
 
   // PRIORITY 4: data-a-color price - get FIRST only from price section
-  console.log(`[PRICE-SELECTOR] PRIORITY 4: Trying selector "[data-a-color='price'] .a-offscreen"`);
+  if (logger) {
+    logger.log('PRICE-SELECTOR', 'Trying PRIORITY 4 selector', { selector: "[data-a-color='price'] .a-offscreen" });
+  }
   const colorEl = $price("[data-a-color='price'] .a-offscreen").first();
-  console.log(`[PRICE-ELEMENT] PRIORITY 4: Element found: ${colorEl.length > 0}, count: ${$price("[data-a-color='price'] .a-offscreen").length}`);
+  if (logger) {
+    logger.log('PRICE-ELEMENT', 'PRIORITY 4 element search', {
+      priority: 4,
+      elementFound: colorEl.length > 0,
+      count: $price("[data-a-color='price'] .a-offscreen").length
+    });
+  }
   if (colorEl.length > 0) {
     const priceText = colorEl.text().trim();
     const rawHtml = colorEl.html();
-    console.log(`[PRICE-TEXT] PRIORITY 4: Raw text: "${priceText}", raw HTML: "${rawHtml?.substring(0, 200)}"`);
+    if (logger) {
+      logger.log('PRICE-TEXT', 'PRIORITY 4 text extracted', {
+        priority: 4,
+        rawText: priceText,
+        rawHtml: rawHtml?.substring(0, 200)
+      });
+    }
     const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
-    console.log(`[PRICE-PARSE] PRIORITY 4: Regex match: ${!!priceMatch}, matched value: ${priceMatch ? priceMatch[1] : 'null'}`);
+    if (logger) {
+      logger.log('PRICE-PARSE', 'PRIORITY 4 regex parse', {
+        priority: 4,
+        regexMatched: !!priceMatch,
+        matchedValue: priceMatch ? priceMatch[1] : null
+      });
+    }
     if (priceMatch) {
-      console.log(`[PRICE-SUCCESS] PRIORITY 4 matched: ${priceMatch[1]} (from ${source})`);
+      if (logger) {
+        logger.log('PRICE-SUCCESS', 'PRIORITY 4 matched', { priority: 4, price: priceMatch[1], source });
+      }
       product["price"] = "$" + priceMatch[1].replace(/,/g, '');
       return;
     } else {
-      console.log(`[PRICE-FAIL] PRIORITY 4: Text found but regex failed, text: "${priceText}"`);
+      if (logger) {
+        logger.log('PRICE-FAIL', 'PRIORITY 4 text found but regex failed', { priority: 4, text: priceText });
+      }
     }
   }
 
   // PRIORITY 5: twister-plus-price (hidden input with price value)
-  console.log(`[PRICE-SELECTOR] PRIORITY 5: Trying regex for twister-plus-price input`);
+  if (logger) {
+    logger.log('PRICE-SELECTOR', 'Trying PRIORITY 5 regex', { selector: 'twister-plus-price input (regex)' });
+  }
   const twisterMatch = fullHtml.match(/<input[^>]*id="twister-plus-price-data-price"[^>]*value="([\d.]+)"[^>]*>/i);
-  console.log(`[PRICE-PARSE] PRIORITY 5: Regex match: ${!!twisterMatch}, matched value: ${twisterMatch ? twisterMatch[1] : 'null'}`);
+  if (logger) {
+    logger.log('PRICE-PARSE', 'PRIORITY 5 regex parse', {
+      priority: 5,
+      regexMatched: !!twisterMatch,
+      matchedValue: twisterMatch ? twisterMatch[1] : null
+    });
+  }
   if (twisterMatch) {
-    console.log(`[PRICE-SUCCESS] PRIORITY 5 (twister) matched: ${twisterMatch[1]}`);
+    if (logger) {
+      logger.log('PRICE-SUCCESS', 'PRIORITY 5 matched', { priority: 5, price: twisterMatch[1], source: 'twister-input' });
+    }
     product["price"] = "$" + twisterMatch[1];
     return;
   }
@@ -206,38 +334,79 @@ function setPrice(product, $) {
     "span.a-text-price span.a-offscreen"
   ];
 
-  console.log(`[PRICE-SELECTOR] PRIORITY 6: Trying ${fallbackSelectors.length} fallback selectors`);
+  if (logger) {
+    logger.log('PRICE-SELECTOR', 'Trying PRIORITY 6 fallback selectors', {
+      priority: 6,
+      fallbackCount: fallbackSelectors.length,
+      selectors: fallbackSelectors
+    });
+  }
+
   for (const selector of fallbackSelectors) {
-    console.log(`[PRICE-SELECTOR] PRIORITY 6: Trying fallback selector "${selector}"`);
+    if (logger) {
+      logger.log('PRICE-SELECTOR', `Trying PRIORITY 6 fallback: ${selector}`, { priority: 6, selector });
+    }
     const el = $(selector).first();
-    console.log(`[PRICE-ELEMENT] PRIORITY 6 (${selector}): Element found: ${el.length > 0}, count: ${$(selector).length}`);
+    if (logger) {
+      logger.log('PRICE-ELEMENT', `PRIORITY 6 element search (${selector})`, {
+        priority: 6,
+        selector,
+        elementFound: el.length > 0,
+        count: $(selector).length
+      });
+    }
     if (el.length > 0) {
       const priceText = el.text().trim();
       const rawHtml = el.html();
-      console.log(`[PRICE-TEXT] PRIORITY 6 (${selector}): Raw text: "${priceText}", raw HTML: "${rawHtml?.substring(0, 200)}"`);
+      if (logger) {
+        logger.log('PRICE-TEXT', `PRIORITY 6 text extracted (${selector})`, {
+          priority: 6,
+          selector,
+          rawText: priceText,
+          rawHtml: rawHtml?.substring(0, 200)
+        });
+      }
       const priceMatch = priceText.match(/^\$?([\d,]+\.?\d*)$/);
-      console.log(`[PRICE-PARSE] PRIORITY 6 (${selector}): Regex match: ${!!priceMatch}, matched value: ${priceMatch ? priceMatch[1] : 'null'}`);
+      if (logger) {
+        logger.log('PRICE-PARSE', `PRIORITY 6 regex parse (${selector})`, {
+          priority: 6,
+          selector,
+          regexMatched: !!priceMatch,
+          matchedValue: priceMatch ? priceMatch[1] : null
+        });
+      }
       if (priceMatch) {
-        console.log(`[PRICE-SUCCESS] PRIORITY 6 (fallback ${selector}) matched: ${priceMatch[1]}`);
+        if (logger) {
+          logger.log('PRICE-SUCCESS', 'PRIORITY 6 matched', { priority: 6, selector, price: priceMatch[1] });
+        }
         product["price"] = "$" + priceMatch[1].replace(/,/g, '');
         return;
       } else {
-        console.log(`[PRICE-FAIL] PRIORITY 6 (${selector}): Text found but regex failed, text: "${priceText}"`);
+        if (logger) {
+          logger.log('PRICE-FAIL', `PRIORITY 6 text found but regex failed (${selector})`, {
+            priority: 6,
+            selector,
+            text: priceText
+          });
+        }
       }
     }
   }
 
   // Final failure - provide detailed summary
-  console.log(`[PRICE-FAIL] ========================================`);
-  console.log(`[PRICE-FAIL] NO PRICE FOUND - Summary:`);
-  console.log(`[PRICE-FAIL] - Price section source: ${source}`);
-  console.log(`[PRICE-FAIL] - Price section length: ${priceHtml.length}`);
-  console.log(`[PRICE-FAIL] - Full HTML length: ${fullHtml.length}`);
-  console.log(`[PRICE-FAIL] - Selectors attempted: 6 priorities + ${fallbackSelectors.length} fallbacks`);
-  console.log(`[PRICE-FAIL] - All selectors failed to find valid price`);
-  console.log(`[PRICE-FAIL] - Price section sample (first 1000 chars):`);
-  console.log(priceHtml.substring(0, 1000));
-  console.log(`[PRICE-FAIL] ========================================`);
+  if (logger) {
+    logger.log('PRICE-FAIL', 'NO PRICE FOUND - All priorities failed', {
+      priceSection: source,
+      priceSectionLength: priceHtml.length,
+      fullHtmlLength: fullHtml.length,
+      prioritiesAttempted: 6,
+      fallbacksAttempted: fallbackSelectors.length,
+      priceSectionSample: priceHtml.substring(0, 1000)
+    });
+  } else {
+    // Fallback to console.log if no logger (backward compatibility)
+    console.log(`[setPrice] No price found`);
+  }
 }
 
 function getCategory($) {

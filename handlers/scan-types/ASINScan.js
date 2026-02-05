@@ -196,7 +196,7 @@ class ASINScan extends Scan {
     this.logger.log('PARSE', `Parsing product data for ${product.ASIN}`);
 
     const productData = {
-      ...parseProductData($),
+      ...parseProductData($, this.logger),
       requestedAt,
       receivedAt,
       sentRequests: product.rerequests + 1,

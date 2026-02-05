@@ -356,7 +356,7 @@ class DealsScan extends Scan {
 
     this.logger.log('PARSE', `Parsing product data for ${product.ASIN}`);
 
-    const productData = parseProductData($);
+    const productData = parseProductData($, this.logger);
     productData.discountCoupon = product.discount;
 
     this.logger.log('PARSE', `Parse complete for ${product.ASIN}`, {

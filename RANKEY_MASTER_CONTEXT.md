@@ -1481,14 +1481,16 @@ cp RANKEY_MASTER_CONTEXT.md "C:\Users\user\Documents\Jonathan Documents\NEW\"
    - **Symptoms:** Some prices not extracted correctly from Amazon pages
    - **Recent work:** Multiple fixes committed (commits 274a1af through 7cb3a6f)
    - **Current accuracy:** ~98% (improved from ~70%)
-   - **Status:** Monitoring, ongoing improvement area
+   - **Status:** Monitoring, ongoing improvement area with new debugging tools
    - **Last fix:** 2026-01-19 - Enabled render_js in ScrapingBee
-   - **New debugging tool (2026-02-03, commit 68a0fa2):** Added detailed price extraction logging
+   - **✅ Debugging tool deployed (2026-02-05, commit 764edc9):** Detailed price extraction logging in production
      - Shows every selector attempted, element found status, extracted text, regex matches
      - Provides HTML samples when price extraction fails
-     - Helps identify why specific products fail (wrong selector, regex issue, missing HTML section)
-     - Branch: improve/price-logging (awaiting approval and merge)
-   - **Testing:** Verified on 50 products
+     - Logs properly saved to scan.log.json files (fixed logger.log issue)
+     - Included in downloadable debug ZIP files
+     - Helps identify why specific products fail (wrong selector, regex issue, missing HTML section, empty text extraction)
+     - **Next step:** Analyze logs from failed price extractions to identify root causes
+   - **Testing:** Verified on 50 products, ready for production analysis
 
 ---
 
@@ -2469,8 +2471,9 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 
 ### Recent Changes
 
-**2026-02-03 - 68a0fa2 (backend) - Improve: Detailed price extraction logging**
-- Added comprehensive logging to pages-parser.js setPrice() function
+**2026-02-05 - 764edc9 (backend) - Deploy: Improved price extraction logging to production**
+- **Deployed to production** with comprehensive price logging system
+- Added detailed logging to pages-parser.js setPrice() and extractPriceSection() functions
 - **PRICE-SECTION logs:** Shows which price section marker found (corePriceDisplay, apex, etc.), section length, sample content
 - **PRICE-SELECTOR logs:** Shows which selector is being tried for each priority level (6 priorities + fallbacks)
 - **PRICE-ELEMENT logs:** Shows whether element found and count of matches
@@ -2478,13 +2481,16 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 - **PRICE-PARSE logs:** Shows regex pattern, whether it matched, and matched value
 - **PRICE-SUCCESS logs:** Confirms which priority level succeeded with final price value
 - **PRICE-FAIL logs:** Detailed failure information for each priority, final summary with all attempted selectors and HTML samples
+- **Fixed:** All logs now use logger.log() instead of console.log(), properly saved to scan.log.json files
 - Applied to all scan types via shared pages-parser.js:
-  - ASINScan.js (line 199): `parseProductData($)`
-  - CategoryScan.js (line 726): `parseProductData($)`
-  - DealsScan.js (line 359): `parseProductData($)`
-- Helps debug why prices aren't found by showing exact selector, text, regex, and HTML at each step
-- Branch: improve/price-logging (not merged yet, awaiting approval)
-- Testing: Needs testing with products that have missing prices
+  - ASINScan.js: passes this.logger to parseProductData($, this.logger)
+  - CategoryScan.js: passes this.logger to parseProductData($, this.logger)
+  - DealsScan.js: passes this.logger to parseProductData($, this.logger)
+- Logs included in downloadable debug ZIP files (debug-analysis/logs/{scanId}.log.json)
+- Merged improve/price-logging branch to main
+- Deployed to production server (5.78.43.96)
+- Backend restarted successfully, no errors
+- Testing: Ready for production testing with scans that have debugPriceLogging enabled
 
 **2026-02-03 - [production-hotfix] - Fix: Incorrect ScrapingBee API key causing 401 errors**
 - **Issue:** All scans failing with 401 Unauthorized from ScrapingBee after deployment

@@ -78,12 +78,35 @@ class Scan extends EventEmitter {
     notifyScansUpdate();
     console.log(`[setState] State updated to: ${this.state}`);
 
+    // Build update fields
+    const updateFields = { state: newState };
+
+    // Set startedAt timestamp when transitioning to 'active'
+    if (newState === "active") {
+      updateFields.startedAt = new Date();
+      console.log(`[setState] Setting startedAt timestamp`);
+    }
+
+    // Set completedAt timestamp when transitioning to terminal states
+    if (newState === "completed" || newState === "failed") {
+      updateFields.completedAt = new Date();
+      console.log(`[setState] Setting completedAt timestamp`);
+    }
+
+    // Persist state to database for ALL state changes
+    try {
+      console.log(`[setState] Persisting state '${newState}' to database for scan ${this.config.id}`);
+      await ScanModel.findByIdAndUpdate(this.config.id, { $set: updateFields });
+      console.log(`[setState] Successfully updated database with state '${newState}'`);
+    } catch (error) {
+      console.error(`[setState] ERROR: Failed to update scan state in database:`, error);
+      // Continue execution - don't throw, as in-memory state is already updated
+    }
+
+    // Special handling for completed state
     if (newState === "completed") {
       console.log("[setState] Emitting 'completed' event");
       await this.recordDetailsToDb();
-      console.log(`[Scan][${new Date().toISOString()}] Updating scan ${this.config.id} as completed at DB`);
-      await ScanModel.findByIdAndUpdate(this.config.id, { $set: { state: "completed" } });
-      console.log(`[Scan][${new Date().toISOString()}] Finished updating scan ${this.config.id} as completed at DB`);
       this.emit("completed");
     }
   }

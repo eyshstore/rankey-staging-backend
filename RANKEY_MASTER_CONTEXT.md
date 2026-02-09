@@ -814,6 +814,96 @@ For changes to `.env`, config files, or infrastructure:
 5. **Update RANKEY_MASTER_CONTEXT.md** - document the change
 6. **Commit documentation** - push updated context file
 
+#### ⚠️ CRITICAL: .env File Handling
+
+**NEVER include .env in git stash or git operations**
+
+**The Problem:**
+- `.env` contains production secrets (API keys, database URLs)
+- Git stash can accidentally revert .env to old values
+- This has caused the ScrapingBee API key to revert to expired key multiple times
+- Results in production failures with 401 errors
+
+**WRONG Way:**
+```bash
+# This will include .env and can cause issues
+git stash
+git stash pop
+```
+
+**CORRECT Way:**
+```bash
+# Exclude .env from stash
+git stash push -- ":(exclude).env"
+
+# Or manually backup before stashing
+cp .env .env.backup
+git stash
+# ... do your git operations ...
+git stash pop
+cp .env.backup .env
+```
+
+**During Workflow - ALWAYS:**
+
+1. **Before git stash:**
+   ```bash
+   # Backup .env manually
+   cp .env .env.backup
+
+   # Stash without .env
+   git stash push -- ":(exclude).env"
+   ```
+
+2. **After git unstash:**
+   ```bash
+   # Restore .env from backup
+   cp .env.backup .env
+
+   # Or verify .env has correct values
+   grep SCRAPINGBEE_API_KEY .env
+   ```
+
+3. **After ANY git operation (pull, merge, checkout):**
+   ```bash
+   # ALWAYS verify ScrapingBee API key is correct
+   grep SCRAPINGBEE_API_KEY .env
+   ```
+
+**ScrapingBee API Key - ALWAYS VERIFY:**
+
+```bash
+# Production and local MUST use this key:
+SCRAPINGBEE_API_KEY=FXBI2P6LEPJ4UE3FE4F02SM7Z1PFI2VRL4HDRAE2VI4RB84W5GVA3ILJ2GI5X96IBEU1BJVNGIOA8Z83
+
+# If different, update immediately:
+# Production:
+ssh root@5.78.43.96 'cd /root/rankey-api && cp .env .env.backup && sed -i "s/^SCRAPINGBEE_API_KEY=.*/SCRAPINGBEE_API_KEY=FXBI2P6LEPJ4UE3FE4F02SM7Z1PFI2VRL4HDRAE2VI4RB84W5GVA3ILJ2GI5X96IBEU1BJVNGIOA8Z83/" .env && pm2 restart rankey-api --update-env'
+
+# Local:
+sed -i "s/^SCRAPINGBEE_API_KEY=.*/SCRAPINGBEE_API_KEY=FXBI2P6LEPJ4UE3FE4F02SM7Z1PFI2VRL4HDRAE2VI4RB84W5GVA3ILJ2GI5X96IBEU1BJVNGIOA8Z83/" .env
+```
+
+**Symptoms of Wrong API Key:**
+- 401 Unauthorized errors from ScrapingBee
+- "Invalid api key" errors in PM2 logs
+- All scans failing immediately
+- Check PM2 logs: `pm2 logs rankey-api --err`
+
+**Prevention Checklist:**
+- [ ] .env is in .gitignore ✅ (already done)
+- [ ] Never `git add .env`
+- [ ] Always use `git stash push -- ":(exclude).env"`
+- [ ] Verify API key after every git pull/merge/checkout
+- [ ] Keep .env.backup for quick restore
+- [ ] Check CREDENTIALS.md for correct keys
+
+**Historical Context:**
+- This issue has occurred multiple times (2026-02-03, 2026-02-09)
+- Root cause: .env accidentally included in git stash operations
+- Result: Production reverts to old/expired API key
+- Impact: All scans fail until manually fixed
+
 ---
 
 ## SECTION 7: LOCAL TESTING SETUP
@@ -2470,6 +2560,25 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 ---
 
 ### Recent Changes
+
+**2026-02-09 - [production-hotfix] - Critical: Fix ScrapingBee API key (AGAIN)**
+- **URGENT FIX:** Production and local both had OLD/EXPIRED ScrapingBee API key
+- **Issue:** All scans failing with 401 Unauthorized errors
+- **Root Cause:** .env file reverted to old key (likely during git stash/unstash)
+- **Old key (wrong):** LT5E88BQTYSA07MZAAB1XOH89B83K5TMMC2TY28EZGEM40U2W8NZRI4TLBTQFY8L9I07J4D9B5EY8DHO
+- **New key (correct):** FXBI2P6LEPJ4UE3FE4F02SM7Z1PFI2VRL4HDRAE2VI4RB84W5GVA3ILJ2GI5X96IBEU1BJVNGIOA8Z83
+- **Actions Taken:**
+  - Production: Backed up .env, updated API key, restarted PM2 with --update-env
+  - Local: Backed up .env, updated API key
+  - Verified: CREDENTIALS.md has correct key documented
+- **Prevention Added:** New section in Section 6 "CRITICAL: .env File Handling"
+  - Documents proper git stash usage to exclude .env
+  - Provides verification commands
+  - Lists symptoms of wrong key
+  - Includes historical context of recurring issue
+- **This is the SECOND occurrence** (first was 2026-02-03)
+- **Status:** Both environments now have correct key, production verified working
+- **Documentation:** Added comprehensive .env handling section to prevent recurrence
 
 **2026-02-09 - 3ba0cbd (backend) - Deploy: Merge fix/state-persistence-and-cleanup to main**
 - **Merged feature branch** fix/state-persistence-and-cleanup into main branch

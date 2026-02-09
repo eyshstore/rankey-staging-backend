@@ -2561,6 +2561,20 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 
 ### Recent Changes
 
+**2026-02-09 - [local-config] - Fix: CORS blocking local frontend connection**
+- **Issue:** Local frontend (http://localhost:5173) blocked by CORS policy
+- **Error:** Access-Control-Allow-Origin header had production URL, not localhost
+- **Root Cause:** Local .env had NODE_ENV=production instead of development
+- **Solution:** Updated local .env file:
+  - Changed NODE_ENV from "production" to "development"
+  - Changed FRONTEND_URL to "http://localhost:5173"
+  - Backend code automatically uses correct CORS origin based on NODE_ENV
+- **Backend Logic:** `const corsOrigin = isProduction ? process.env.FRONTEND_URL : 'http://localhost:5173';`
+- **Files Updated:** .env (local only, not committed)
+- **Note:** Production .env remains unchanged (NODE_ENV=production)
+- **Status:** Local development environment now properly configured
+- **Action Required:** User must restart local backend for changes to take effect
+
 **2026-02-09 - [production-hotfix] - Critical: Fix ScrapingBee API key (AGAIN)**
 - **URGENT FIX:** Production and local both had OLD/EXPIRED ScrapingBee API key
 - **Issue:** All scans failing with 401 Unauthorized errors

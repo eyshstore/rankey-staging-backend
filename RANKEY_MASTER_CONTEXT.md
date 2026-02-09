@@ -373,9 +373,9 @@ At the start of EVERY Claude Code session, run:
 | Property | Value |
 |----------|-------|
 | **Current Branch** | main |
-| **Latest Commit** | 4966ae1 |
-| **Commit Message** | docs: Add START_HERE.md with mandatory Claude Code instructions |
-| **Commit Date** | 2026-02-02 |
+| **Latest Commit** | 3ba0cbd |
+| **Commit Message** | fix: setState() not persisting to MongoDB + cleanup job |
+| **Commit Date** | 2026-02-05 |
 | **API URL** | https://rankey-api.jsecom.pl |
 
 **Repository Status:**
@@ -386,9 +386,9 @@ At the start of EVERY Claude Code session, run:
 **Server Status:**
 | Property | Value |
 |----------|-------|
-| **Server Commit** | 274a1af (matches GitHub) |
+| **Server Commit** | 3ba0cbd (matches GitHub) |
 | **Status** | ✅ Server is up to date with GitHub |
-| **PM2 Status** | Online (6+ days uptime) |
+| **PM2 Status** | Online (restarted 2026-02-09) |
 
 ---
 
@@ -2470,6 +2470,28 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 ---
 
 ### Recent Changes
+
+**2026-02-09 - 3ba0cbd (backend) - Deploy: Merge fix/state-persistence-and-cleanup to main**
+- **Merged feature branch** fix/state-persistence-and-cleanup into main branch
+- **Production deployment:** Switched production from feature branch to main branch
+- **Changes included:**
+  - Fixed: setState() not persisting to MongoDB (Scan.js)
+  - Added: Automatic cleanup job for stuck scans (utilities/scan-cleanup.js)
+  - Added: Missing index.js file
+  - Cleanup job runs every 2 hours to mark abandoned scans as "failed"
+- **Deployment process:**
+  - Local: Merged feature branch to main (fast-forward)
+  - GitHub: Pushed main branch (f85875d → 3ba0cbd)
+  - Production: Switched from feature branch to main
+  - Production: Stashed local changes, pulled main, restarted PM2
+- **Verification:**
+  - PM2 status: online
+  - Database connected successfully
+  - HTTP server running on port 7000
+  - Cleanup job confirmed active in logs
+- **Documentation:** Updated RANKEY_MASTER_CONTEXT.md Section 3 (current state)
+- **Ready for:** New feature development on feature/amazon-api-mode branch
+- Testing: Production running successfully on main branch
 
 **2026-02-05 - 764edc9 (backend) - Deploy: Improved price extraction logging to production**
 - **Deployed to production** with comprehensive price logging system

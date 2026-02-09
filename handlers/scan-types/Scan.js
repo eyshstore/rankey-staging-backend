@@ -18,6 +18,7 @@ class Scan extends EventEmitter {
     this.config = {};
     console.log("[Scan] Constructor initialized with state 'enqueued'");
     this.sentRequests = 0;
+    this.stateUpdateQueue = Promise.resolve(); // Queue to prevent setState() race conditions
   }
 
   async requestPage(url, successCallback, errorCallback, ...args) {
@@ -70,45 +71,50 @@ class Scan extends EventEmitter {
   }
 
   async setState(newState) {
-    console.log(`[setState] Current state: ${this.state}, New state: ${newState}`);
-    if (this.state == "stalling" && newState != "stalled") return;
-    if (this.state == "halting" && newState != "completed") return;
+    // Queue this update to prevent race conditions
+    this.stateUpdateQueue = this.stateUpdateQueue.then(async () => {
+      console.log(`[setState] Current state: ${this.state}, New state: ${newState}`);
+      if (this.state == "stalling" && newState != "stalled") return;
+      if (this.state == "halting" && newState != "completed") return;
 
-    this.state = newState;
-    notifyScansUpdate();
-    console.log(`[setState] State updated to: ${this.state}`);
+      this.state = newState;
+      notifyScansUpdate();
+      console.log(`[setState] State updated to: ${this.state}`);
 
-    // Build update fields
-    const updateFields = { state: newState };
+      // Build update fields
+      const updateFields = { state: newState };
 
-    // Set startedAt timestamp when transitioning to 'active'
-    if (newState === "active") {
-      updateFields.startedAt = new Date();
-      console.log(`[setState] Setting startedAt timestamp`);
-    }
+      // Set startedAt timestamp when transitioning to 'active'
+      if (newState === "active") {
+        updateFields.startedAt = new Date();
+        console.log(`[setState] Setting startedAt timestamp`);
+      }
 
-    // Set completedAt timestamp when transitioning to terminal states
-    if (newState === "completed" || newState === "failed") {
-      updateFields.completedAt = new Date();
-      console.log(`[setState] Setting completedAt timestamp`);
-    }
+      // Set completedAt timestamp when transitioning to terminal states
+      if (newState === "completed" || newState === "failed") {
+        updateFields.completedAt = new Date();
+        console.log(`[setState] Setting completedAt timestamp`);
+      }
 
-    // Persist state to database for ALL state changes
-    try {
-      console.log(`[setState] Persisting state '${newState}' to database for scan ${this.config.id}`);
-      await ScanModel.findByIdAndUpdate(this.config.id, { $set: updateFields });
-      console.log(`[setState] Successfully updated database with state '${newState}'`);
-    } catch (error) {
-      console.error(`[setState] ERROR: Failed to update scan state in database:`, error);
-      // Continue execution - don't throw, as in-memory state is already updated
-    }
+      // Persist state to database for ALL state changes
+      try {
+        console.log(`[setState] Persisting state '${newState}' to database for scan ${this.config.id}`);
+        await ScanModel.findByIdAndUpdate(this.config.id, { $set: updateFields });
+        console.log(`[setState] Successfully updated database with state '${newState}'`);
+      } catch (error) {
+        console.error(`[setState] ERROR: Failed to update scan state in database:`, error);
+        // Continue execution - don't throw, as in-memory state is already updated
+      }
 
-    // Special handling for completed state
-    if (newState === "completed") {
-      console.log("[setState] Emitting 'completed' event");
-      await this.recordDetailsToDb();
-      this.emit("completed");
-    }
+      // Special handling for completed state
+      if (newState === "completed") {
+        console.log("[setState] Emitting 'completed' event");
+        await this.recordDetailsToDb();
+        this.emit("completed");
+      }
+    });
+
+    return this.stateUpdateQueue;
   }
 
   async getState() {

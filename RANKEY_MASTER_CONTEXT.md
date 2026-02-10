@@ -466,6 +466,31 @@ Rankey supports **two scraping modes** for product data extraction:
 | **Status** | ✅ Server is up to date with GitHub |
 | **PM2 Status** | Online (restarted 2026-02-09) |
 
+### Feature Branch Status (In Development)
+
+**Branch:** feature/amazon-api-mode (both frontend and backend)
+
+| Repository | Latest Commit | Status |
+|------------|---------------|--------|
+| **Backend** | 6058f74 | ✅ Pushed to GitHub |
+| **Frontend** | 39b29e3 | ✅ Pushed to GitHub |
+
+**Feature:** Amazon API mode integration for solving location-based pricing issues
+
+**Backend Commits:**
+- 7496ed8: Core implementation (scraper, parser, ASINScan modifications)
+- 6058f74: Documentation update
+
+**Frontend Commits:**
+- 39b29e3: UI toggle for Amazon API mode
+
+**Status:**
+- ✅ Backend implementation complete and tested locally
+- ✅ Frontend UI toggle implemented
+- ⏸️ Awaiting integration testing
+- ⏸️ Awaiting human approval for merge to main
+- ❌ NOT deployed to production yet
+
 ---
 
 ## SECTION 4: INFRASTRUCTURE DETAILS
@@ -1050,13 +1075,36 @@ C:\Users\user\Documents\Jonathan Documents\eBay\Rankey\rankey-staging\
 - Collections: products, categories, scans, sessions
 - Total documents: 392,210
 
-**Backend .env (renamed from .env.local):**
+**Backend Environment Files (Updated 2026-02-10):**
+
+The backend now uses **separate environment files** to prevent CORS issues:
+
+- `.env.local` - Local development (FRONTEND_URL=http://localhost:5173)
+- `.env.production` - Production/VPS (FRONTEND_URL=https://rankey-staging-ui.onrender.com)
+- `.env.example` - Template for new developers (safe for git)
+
+**IMPORTANT:** Use the correct npm script:
+- Local: `npm start` → uses .env.local
+- Production: `npm start:prod` → uses .env.production
+
+**Backend .env.local:**
 ```env
 DB_HOST=mongodb://localhost:27017/rankey
 PORT=7000
-SESSION_SECRET=local-dev-secret-not-for-production
+SESSION_SECRET=local-dev-secret-not-for-production-use-only
 NODE_ENV=development
 FRONTEND_URL=http://localhost:5173
+SCRAPINGBEE_API_KEY=FXBI2P6LEPJ4UE3FE4F02SM7Z1PFI2VRL4HDRAE2VI4RB84W5GVA3ILJ2GI5X96IBEU1BJVNGIOA8Z83
+SCRAPINGDOG_API_KEY=65958587ebfede1211659265
+```
+
+**Backend .env.production:**
+```env
+DB_HOST=mongodb://localhost:27017/rankey
+PORT=7000
+SESSION_SECRET=<strong random value - see CREDENTIALS.md>
+NODE_ENV=production
+FRONTEND_URL=https://rankey-staging-ui.onrender.com
 SCRAPINGBEE_API_KEY=FXBI2P6LEPJ4UE3FE4F02SM7Z1PFI2VRL4HDRAE2VI4RB84W5GVA3ILJ2GI5X96IBEU1BJVNGIOA8Z83
 SCRAPINGDOG_API_KEY=65958587ebfede1211659265
 ```
@@ -1084,6 +1132,44 @@ npm run dev
 - Can test all features with real product data
 - No need to mock data or create test fixtures
 - Safe to experiment without affecting production
+
+### Troubleshooting CORS Issues
+
+**Problem:** Frontend at http://localhost:5173 cannot connect to backend, browser shows CORS errors
+
+**Root Cause:** Backend is using wrong FRONTEND_URL in environment configuration
+
+**Solution:**
+1. **Check which env file is being used:**
+   ```bash
+   cd rankey-staging-backend
+   # For local: Should use .env.local
+   npm start
+
+   # Check backend logs for: "CORS allowed origin: http://localhost:5173"
+   ```
+
+2. **Verify .env.local has correct FRONTEND_URL:**
+   ```bash
+   cat .env.local | grep FRONTEND_URL
+   # Should output: FRONTEND_URL=http://localhost:5173
+   ```
+
+3. **If FRONTEND_URL is wrong:**
+   - Edit .env.local file
+   - Change FRONTEND_URL to: http://localhost:5173
+   - Restart backend: Ctrl+C then npm start
+
+4. **Common Mistakes:**
+   - ❌ Using `npm start:prod` for local (uses .env.production)
+   - ❌ Editing .env file (doesn't exist anymore)
+   - ❌ Running backend without environment file
+   - ✅ Always use `npm start` for local development
+
+**Prevention:**
+- NEVER manually edit FRONTEND_URL in .env.local after setup
+- Use correct npm script: `npm start` (local) vs `npm start:prod` (VPS)
+- Both .env.local and .env.production are in .gitignore (won't be committed)
 
 ---
 
@@ -2415,24 +2501,34 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
 
 **NEVER:**
 - ✋ **Commit CREDENTIALS.md to git**
+- ✋ **Commit .env.local or .env.production to git**
 - ✋ **Expose API keys in code or logs**
 - ✋ **Disable authentication without explicit approval**
 - ✋ **Share .env files publicly**
 - ✋ **Log sensitive data** (passwords, API keys)
+- ✋ **Use single .env file for both local and production**
 
 **ALWAYS:**
 - ✅ **Use environment variables for sensitive config**
-- ✅ **Verify .env is in .gitignore**
+- ✅ **Use .env.local for local development**
+- ✅ **Use .env.production for VPS/production**
+- ✅ **Verify .env.local and .env.production are in .gitignore**
+- ✅ **Use npm start for local** (loads .env.local)
+- ✅ **Use npm start:prod on VPS** (loads .env.production)
 - ✅ **Rotate API keys periodically**
 - ✅ **Use strong random values for secrets**
 - ✅ **Keep backups encrypted**
 
 **Security Checklist:**
-- [ ] .env is NOT committed to git
+- [ ] .env.local is NOT committed to git
+- [ ] .env.production is NOT committed to git
+- [ ] .env.example IS in git (template only, no secrets)
 - [ ] API keys are stored in environment variables
 - [ ] SESSION_SECRET is strong random value (not "secret")
 - [ ] CREDENTIALS.md is in backup directory only (not in git)
 - [ ] Backups contain sensitive data (store securely)
+- [ ] Local development uses npm start (not npm start:prod)
+- [ ] Production/VPS uses npm start:prod (not npm start)
 
 ---
 
@@ -2662,6 +2758,83 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 ---
 
 ### Recent Changes
+
+**2026-02-10 - 7b9eccb (backend, feature branch) - Fix: Separate .env files for local and production environments**
+- **Branch:** feature/amazon-api-mode (NOT merged to main yet - awaiting approval)
+- **Problem Solved:** Recurring CORS issues caused by .env file reverting to production settings
+- **Root Cause:** Single .env file used for both local and production, leading to confusion
+- **Files Created:**
+  - .env.local: Local development settings
+    * FRONTEND_URL=http://localhost:5173
+    * SESSION_SECRET=local-dev-secret (not for production)
+    * NODE_ENV=development
+  - .env.production: Production/VPS settings
+    * FRONTEND_URL=https://rankey-staging-ui.onrender.com
+    * SESSION_SECRET=<strong random value from CREDENTIALS.md>
+    * NODE_ENV=production
+  - .env.example: Template for new developers (safe for git)
+    * Placeholder values, no secrets
+    * Serves as documentation
+- **Files Modified:**
+  - package.json: Updated scripts to use correct env file
+    * `npm start` → uses .env.local (local development)
+    * `npm start:prod` → uses .env.production (VPS server)
+    * `npm run dev` → uses .env.local with nodemon
+  - .gitignore: Added .env.local and .env.production exclusions
+- **Files Deleted:**
+  - .env: Removed single .env file (backed up as .env.old-backup)
+- **Benefits:**
+  - Prevents CORS errors in local development
+  - Clear separation between local and production config
+  - No more manual .env editing to switch environments
+  - Safe to use npm start without worrying about wrong settings
+  - .env.example serves as documentation for new developers
+- **Documentation:**
+  - Updated Section 7: Local Testing Setup with new env approach
+  - Updated Section 13: Added critical rules for env file handling
+  - Added troubleshooting section for CORS issues
+- **Testing:**
+  - ⏸️ Pending: Human will test `npm start` → verify CORS works
+  - ⏸️ Pending: Human will verify frontend can connect at http://localhost:5173
+- **Next Steps:**
+  - Human tests local setup with `npm start`
+  - If working, ready for final review and merge
+
+**2026-02-10 - 39b29e3 (frontend, feature branch) - Feature: Add Amazon API mode toggle to ASIN scan form**
+- **Branch:** feature/amazon-api-mode (NOT merged to main yet - awaiting approval)
+- **Completes:** Frontend UI component for Amazon API mode feature
+- **Modified Files:**
+  - src/NewScanModal.jsx: Added useAmazonAPI checkbox
+    * Checkbox only visible for ASIN scan type
+    * Label: "Use Amazon API mode (beta)"
+    * Help text: "Better accuracy for products with shipping restrictions. Uses structured API instead of HTML scraping."
+    * Default: unchecked (false) - backward compatible
+    * Properly integrated with form state management
+- **Implementation:**
+  - Added useAmazonAPI: false to formData initial state
+  - Checkbox conditionally rendered when scanType === 'ASIN'
+  - handleInputChange handles checkbox toggle automatically
+  - scanData.useAmazonAPI included in ASIN scan request payload
+- **UI/UX:**
+  - Placed below debugPriceLogging checkbox for consistency
+  - Multi-line layout with title and description
+  - Consistent styling with existing controls (Tailwind CSS)
+  - Clear visual hierarchy with font weight and color differentiation
+- **Backend Integration:**
+  - Parameter sent to POST /amazon/scans/enqueue endpoint
+  - Backend (feature/amazon-api-mode branch) receives and uses flag
+  - Selects between HTML scraping and Amazon API mode
+- **Testing:**
+  - ✅ Checkbox appears only for ASIN scans
+  - ✅ Default unchecked state works
+  - ⏸️ Integration testing with backend pending
+  - ⏸️ Verification that useAmazonAPI parameter is sent correctly pending
+- **Next Steps:**
+  - Manual integration testing (create scans with checkbox on/off)
+  - Test with ASIN B014WOXB6O (should get $11.99 with checkbox checked)
+  - Verify backend logs show correct mode selection
+  - Merge to main after approval
+  - Deploy to production (frontend will auto-deploy via Render)
 
 **2026-02-10 - 7496ed8 (backend, feature branch) - Feature: Add ScrapingBee Amazon API integration**
 - **Branch:** feature/amazon-api-mode (NOT merged to main yet - awaiting approval)
@@ -2907,6 +3080,8 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.3 | 2026-02-10 | Added env separation fix documentation (Section 7, Section 13, Changelog) |
+| 1.2 | 2026-02-10 | Added frontend UI toggle documentation (Section 3 feature branch, Changelog) |
 | 1.1 | 2026-02-10 | Added Amazon API mode documentation (Section 1, Section 10, Changelog) |
 | 1.0 | 2026-02-02 | Initial creation of RANKEY_MASTER_CONTEXT.md |
 
@@ -2917,7 +3092,7 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 ---
 
 **Document Status:** ✅ Complete and Up-to-Date
-**Last Updated:** 2026-02-10 (Added Amazon API mode documentation, commit 7496ed8)
+**Last Updated:** 2026-02-10 (Added env separation fix documentation, commit 7b9eccb)
 **Next Review:** After next major deployment
 **Maintained By:** Claude + Human Collaboration
 

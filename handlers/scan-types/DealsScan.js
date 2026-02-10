@@ -8,6 +8,8 @@ const { HttpError } = require("../../utilities/HttpError");
 
 const puppeteer = require("puppeteer");
 const { parseProductData } = require("../pages-parser");
+const { parseAmazonApiData } = require("../amazon-api-parser");
+const { amazonApiScraper } = require("../amazon-api-scraper");
 const { getScrapingProviderManager } = require("../../providers/ScrapingProviderManager");
 const ScanLogger = require("../../utilities/logger");
 const fs = require('fs');
@@ -55,6 +57,7 @@ class DealsScan extends Scan {
       maxConcurrentRequests: config.maxConcurrentRequests,
       maxRequests: config.maxRequests,
       maxRerequests: config.maxRerequests,
+      useAmazonAPI: config.useAmazonAPI || false,
       mainCategoryId: config.mainCategoryId,
       mainCategoryNodeId: config.mainCategoryNodeId,
     });
@@ -72,6 +75,7 @@ class DealsScan extends Scan {
       createdAt: 1,
       maxRequests: 1,
       maxRerequests: 1,
+      useAmazonAPI: 1,
       mainCategoryId: 1,
       mainCategoryNodeId: 1,
     }).lean();
@@ -91,6 +95,7 @@ class DealsScan extends Scan {
       maxConcurrentRequests: config.maxConcurrentRequests,
       maxRequests: config.maxRequests,
       maxRerequests: config.maxRerequests,
+      useAmazonAPI: config.useAmazonAPI || false,
       mainCategoryId: config.mainCategoryId,
       mainCategoryNodeId: config.mainCategoryNodeId,
     });
@@ -112,12 +117,13 @@ class DealsScan extends Scan {
       maxRequests: config.maxRequests,
       maxRerequests: config.maxRerequests,
       debugPriceLogging: config.debugPriceLogging || false,
+      useAmazonAPI: config.useAmazonAPI || false,
 
       mainCategoryId: config.mainCategoryId,
       mainCategoryNodeId: config.mainCategoryNodeId,
     };
 
-    console.log(`⚙️ Initializing scan for ${config.numberOfProductsToGather} products on ${config.domain}`);
+    console.log(`⚙️ Initializing scan for ${config.numberOfProductsToGather} products on ${config.domain} (mode: ${this.config.useAmazonAPI ? 'amazon-api' : 'html'})`);
 
     // Initialize logger
     this.logger = new ScanLogger(scan._id, 'DEALS');
@@ -303,7 +309,11 @@ class DealsScan extends Scan {
       discount: product.discount
     });
 
-    await this.requestPageWithHtml(productPageUrl, this.handleProductPageSuccess, this.handleProductPageError, product);
+    if (this.config.useAmazonAPI) {
+      await this.requestProductWithAmazonAPI(product);
+    } else {
+      await this.requestPageWithHtml(productPageUrl, this.handleProductPageSuccess, this.handleProductPageError, product);
+    }
   }
 
   async requestPageWithHtml(url, successCallback, errorCallback, product) {
@@ -547,8 +557,76 @@ class DealsScan extends Scan {
         }
       }
     ]);
-  
+
     return details;
+  }
+
+  // Amazon API Mode Methods
+  async requestProductWithAmazonAPI(product) {
+    const requestedAt = Date.now();
+
+    try {
+      this.sentRequests++;
+      if (this.sentRequests == this.config.maxRequests) {
+        this.logger.log('INFO', `Reached max requests limit (${this.config.maxRequests})`);
+      }
+
+      this.logger.log('INFO', `Using Amazon API mode for product: ${product.ASIN}`);
+
+      const apiResponse = await amazonApiScraper.scrapeProduct(product.ASIN, {
+        zipCode: '10001',
+        logger: this.logger
+      });
+
+      await this.handleAmazonApiSuccess(apiResponse, product, requestedAt);
+    } catch (error) {
+      await this.handleAmazonApiError(error, product, requestedAt);
+    }
+  }
+
+  async handleAmazonApiSuccess(apiResponse, product, requestedAt) {
+    const respondedAt = Date.now();
+    const parsedProduct = parseAmazonApiData(apiResponse, this.logger);
+
+    if (!parsedProduct) {
+      this.logger.log('ERROR', `Failed to parse Amazon API response for ${product.ASIN}`);
+      this.productASINsBeingRequested.delete(product.ASIN);
+      this.concurrentRequestsOccupied -= 1;
+      this.runConcurrentRequest();
+      return;
+    }
+
+    // Keep the original discount from the deals page
+    parsedProduct.discount = product.discount;
+
+    this.logger.log('SUCCESS', `Amazon API request succeeded for ${product.ASIN}`, {
+      asin: product.ASIN,
+      price: parsedProduct.price,
+      discount: parsedProduct.discount,
+      responseTime: respondedAt - requestedAt
+    });
+
+    const dbProduct = await this.enqueueProduct(parsedProduct);
+
+    this.productASINsBeingRequested.delete(product.ASIN);
+    this.concurrentRequestsOccupied -= 1;
+    this.runConcurrentRequest();
+
+    return dbProduct;
+  }
+
+  async handleAmazonApiError(error, product, requestedAt) {
+    const respondedAt = Date.now();
+
+    this.logger.log('ERROR', `Amazon API request failed for ${product.ASIN}`, {
+      asin: product.ASIN,
+      error: error.message,
+      responseTime: respondedAt - requestedAt
+    });
+
+    this.productASINsBeingRequested.delete(product.ASIN);
+    this.concurrentRequestsOccupied -= 1;
+    this.runConcurrentRequest();
   }
 }
 

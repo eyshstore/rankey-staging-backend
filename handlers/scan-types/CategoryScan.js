@@ -6,6 +6,8 @@ const { ScanModel } = require("../../collections/scan");
 const { CategoryModel } = require("../../collections/category");
 
 const { parseProductData, parseCategoryPage, parseIsLastPage } = require("../pages-parser");
+const { parseAmazonApiData } = require("../amazon-api-parser");
+const { amazonApiScraper } = require("../amazon-api-scraper");
 const { getScrapingProviderManager } = require("../../providers/ScrapingProviderManager");
 const { notifyScansUpdate } = require("../../routes/sse/scans-list");
 
@@ -103,6 +105,7 @@ class CategoryScan extends Scan {
       maxRerequests: config.maxRerequests,
       minRank: config.minRank,
       maxRank: config.maxRank,
+      useAmazonAPI: config.useAmazonAPI || false,
     });
 
     this.setState("active");
@@ -127,6 +130,7 @@ class CategoryScan extends Scan {
       maxConcurrentRequests: config.maxConcurrentRequests,
       maxRequests: config.maxRequests,
       maxRerequests: config.maxRerequests,
+      useAmazonAPI: config.useAmazonAPI || false,
     });
     notifyScansUpdate();
   }
@@ -146,6 +150,7 @@ class CategoryScan extends Scan {
       createdAt: 1,
       maxRequests: 1,
       maxRerequests: 1,
+      useAmazonAPI: 1,
     }).lean();
 
     this.setState("active");
@@ -165,6 +170,7 @@ class CategoryScan extends Scan {
       maxRequests: config.maxRequests,
       maxRerequests: config.maxRerequests,
       debugPriceLogging: config.debugPriceLogging || false,
+      useAmazonAPI: config.useAmazonAPI || false,
 
       mainCategoryId: config.mainCategoryId,
       numberOfProductsToGather: config.numberOfProductsToGather,
@@ -181,6 +187,7 @@ class CategoryScan extends Scan {
       scanId: scan._id,
       mainCategoryId: config.mainCategoryId,
       domain: config.domain,
+      scrapeMode: this.config.useAmazonAPI ? 'amazon-api' : 'html',
       debugPriceLogging: this.config.debugPriceLogging,
       numberOfProductsToGather: config.numberOfProductsToGather,
       strategy: config.strategy,
@@ -520,17 +527,196 @@ class CategoryScan extends Scan {
 
   async requestProductPage() {
     const product = this.productsQueue.shift();
-    const productPageUrl = `https://www.amazon.${this.config.domain}/dp/${product.ASIN}`;
     this.productASINsBeingRequested.push(product.ASIN);
     this.productPagesRequestsSent += 1;
-    console.log(`📤 Requesting product page: ${product.ASIN}`);
 
-    this.logger.log('REQUEST', `Requesting product: ${product.ASIN}`, {
+    // Choose scraping mode based on configuration
+    if (this.config.useAmazonAPI) {
+      // Use Amazon API mode
+      console.log(`📤 Requesting product (Amazon API): ${product.ASIN}`);
+      this.logger.log('REQUEST', `Requesting product via Amazon API: ${product.ASIN}`, {
+        asin: product.ASIN,
+        mode: 'amazon-api'
+      });
+      await this.requestProductWithAmazonAPI(product);
+    } else {
+      // Use HTML scraping mode (default)
+      const productPageUrl = `https://www.amazon.${this.config.domain}/dp/${product.ASIN}`;
+      console.log(`📤 Requesting product page: ${product.ASIN}`);
+      this.logger.log('REQUEST', `Requesting product: ${product.ASIN}`, {
+        asin: product.ASIN,
+        url: productPageUrl,
+        mode: 'html'
+      });
+      await this.requestPageWithHtml(productPageUrl, this.handleProductPageSuccess, this.handleProductPageError, product, 'product');
+    }
+  }
+
+  /**
+   * Request product data using Amazon API (alternative to HTML scraping)
+   * @param {object} product - Product object with ASIN
+   */
+  async requestProductWithAmazonAPI(product) {
+    const requestedAt = Date.now();
+
+    try {
+      this.sentRequests++;
+      if (this.sentRequests == this.config.maxRequests) {
+        this.setState("halting");
+        if (this.stopAllConcurrentRequests) {
+          this.stopAllConcurrentRequests();
+        }
+        console.log(`⛔ Max requests reached: ${this.config.maxRequests}`);
+      }
+
+      // Scrape using Amazon API
+      const apiResponse = await amazonApiScraper.scrapeProduct(product.ASIN, {
+        zipCode: '10001',
+        logger: this.logger
+      });
+
+      const receivedAt = Date.now();
+
+      this.logger.log('AMAZON-API-RESPONSE', `API response received for ${product.ASIN}`, {
+        asin: product.ASIN,
+        responseTime: receivedAt - requestedAt,
+        hasData: !!apiResponse
+      });
+
+      // Parse API response
+      await this.handleAmazonApiSuccess(apiResponse, requestedAt, receivedAt, product);
+
+    } catch (err) {
+      this.logger.error('AMAZON-API-ERROR', `API request failed for ${product.ASIN}`, err);
+      await this.handleAmazonApiError(err, requestedAt, Date.now(), product);
+    }
+  }
+
+  /**
+   * Handle successful Amazon API response
+   */
+  async handleAmazonApiSuccess(apiResponse, requestedAt, receivedAt, product) {
+    this.productPagesRequestsSucceeded += 1;
+    this.productASINsBeingRequested.splice(this.productASINsBeingRequested.findIndex(productASIN => productASIN == product.ASIN), 1);
+    console.log(`✅ Product API success: ${product.ASIN}`);
+
+    this.logger.log('AMAZON-API-PARSE', `Parsing API response for ${product.ASIN}`);
+
+    const productData = parseAmazonApiData(apiResponse, this.logger);
+
+    this.logger.log('AMAZON-API-PARSE-COMPLETE', `Parse complete for ${product.ASIN}`, {
       asin: product.ASIN,
-      url: productPageUrl
+      titleFound: !!productData.title,
+      title: productData.title || 'EMPTY',
+      priceFound: !!productData.price,
+      price: productData.price || 'EMPTY',
+      brand: productData.brand || 'EMPTY',
+      category: productData.category || 'EMPTY',
+      rank: productData.rank || 'EMPTY',
+      hasCoupon: productData.discountCoupon !== 'none' ? 'YES' : 'NO',
+      coupon: productData.discountCoupon || 'none',
+      scrapeMethod: productData.scrapeMethod,
+      rankInRange: productData.rank >= this.config.minRank && productData.rank <= this.config.maxRank
     });
 
-    await this.requestPageWithHtml(productPageUrl, this.handleProductPageSuccess, this.handleProductPageError, product, 'product');
+    if (productData.rank >= this.config.minRank && productData.rank <= this.config.maxRank) {
+      this.productsGathered += 1;
+      console.log(`📈 Product gathered: ${product.ASIN}, total: ${this.productsGathered}`);
+      this.logger.log('GATHER', `Product counted: ${product.ASIN}`, {
+        asin: product.ASIN,
+        rank: productData.rank,
+        productsGathered: this.productsGathered,
+        target: this.config.numberOfProductsToGather
+      });
+
+      // Save product to database
+      const productId = await this.recordProductToDb(product.ASIN, productData);
+      await ScanModel.findByIdAndUpdate(this.config.id, { $push: { products: productId } });
+
+      this.logger.log('SAVE', `Product saved: ${product.ASIN}`, {
+        asin: product.ASIN,
+        productId: productId.toString()
+      });
+    } else {
+      this.logger.log('SKIP', `Product rank out of range: ${product.ASIN}`, {
+        asin: product.ASIN,
+        rank: productData.rank,
+        minRank: this.config.minRank,
+        maxRank: this.config.maxRank
+      });
+    }
+
+    if (this.productsGathered >= this.config.numberOfProductsToGather) {
+      console.log(`🎯 Target reached: ${this.productsGathered}/${this.config.numberOfProductsToGather}`);
+      this.logger.log('TARGET-REACHED', 'Product gathering target met', {
+        productsGathered: this.productsGathered,
+        target: this.config.numberOfProductsToGather
+      });
+      this.stopAllConcurrentRequests();
+    }
+  }
+
+  /**
+   * Handle Amazon API errors
+   */
+  async handleAmazonApiError(error, requestedAt, receivedAt, product) {
+    this.productASINsBeingRequested.splice(this.productASINsBeingRequested.findIndex(productASIN => productASIN == product.ASIN), 1);
+    console.log(`❌ Product API error: ${product.ASIN}`);
+
+    const statusCode = error.statusCode || 500;
+
+    this.logger.error('AMAZON-API-ERROR', `Failed to process ${product.ASIN}`, error);
+    this.logger.log('AMAZON-API-ERROR-DETAILS', `Error details for ${product.ASIN}`, {
+      asin: product.ASIN,
+      statusCode,
+      errorMessage: error.message,
+      errorCode: error.code,
+      rerequests: product.rerequests || 0
+    });
+
+    // Handle errors (similar to HTML mode)
+    switch (statusCode) {
+      case 401:
+        this.logger.log('AMAZON-API-ERROR-HANDLING', 'API key issue - stalling scan', { asin: product.ASIN });
+        this.productsQueue.unshift(product);
+        return this.setState("stalling");
+
+      case 429:
+        this.logger.log('AMAZON-API-ERROR-HANDLING', 'Rate limit - reducing concurrency', {
+          asin: product.ASIN,
+          currentConcurrency: this.config.maxConcurrentRequests
+        });
+        this.productsQueue.unshift(product);
+        if (this.config.maxConcurrentRequests > 1) this.config.maxConcurrentRequests--;
+        return;
+
+      case 404:
+        this.logger.log('AMAZON-API-ERROR-HANDLING', 'Product not found', { asin: product.ASIN, statusCode });
+        // Don't save failed products in category scans, just skip them
+        return;
+
+      case 500:
+        if ((product.rerequests || 0) < this.config.maxRerequests) {
+          this.logger.log('AMAZON-API-ERROR-HANDLING', 'Server error - retrying', {
+            asin: product.ASIN,
+            rerequests: product.rerequests || 0,
+            maxRerequests: this.config.maxRerequests
+          });
+          product.rerequests = (product.rerequests || 0) + 1;
+          return this.productsQueue.unshift(product);
+        }
+        this.logger.log('AMAZON-API-ERROR-HANDLING', 'Max retries reached - skipping product', {
+          asin: product.ASIN
+        });
+        return;
+
+      default:
+        this.logger.log('AMAZON-API-ERROR-HANDLING', 'Unknown error - skipping product', {
+          asin: product.ASIN,
+          statusCode
+        });
+        return;
+    }
   }
 
   async requestPageWithHtml(url, successCallback, errorCallback, context, pageType) {

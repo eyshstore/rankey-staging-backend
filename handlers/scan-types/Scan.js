@@ -181,12 +181,16 @@ class Scan extends EventEmitter {
         receivedAt: data.receivedAt,
       };
 
+      // Update product with new data AND add change history
       await ProductModel.findOneAndUpdate(
         { ASIN, domain: this.config.domain },
-        { $push: { changeHistory: changeHistoryEntry } }
+        {
+          $set: { ...data, ASIN, domain: this.config.domain },  // Overwrite all fields with new data
+          $push: { changeHistory: changeHistoryEntry }
+        }
       );
 
-      console.log("[recordProductToDb] Updated existing product with change history");
+      console.log("[recordProductToDb] Updated existing product with new data and change history");
       productId = existingProduct._id;
     } else {
       const product = await ProductModel.create({

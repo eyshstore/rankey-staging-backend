@@ -124,6 +124,82 @@ At the start of EVERY Claude Code session, run:
    - Output: Products currently on sale or with coupons
    - Use case: Track current deals and promotions
 
+### Scraping Modes
+
+Rankey supports **two scraping modes** for product data extraction:
+
+#### 1. HTML Scraping Mode (Default)
+
+- **Endpoint:** ScrapingBee HTML API (`/api/v1/`)
+- **Process:**
+  - Fetches full HTML page from Amazon
+  - Parses HTML with Cheerio (jQuery-like selector library)
+  - Extracts data using CSS selectors
+- **Advantages:**
+  - Can extract all available fields (including quantity, dateFirstAvailable)
+  - Mature and battle-tested
+  - Current accuracy: ~98%
+- **Disadvantages:**
+  - Subject to HTML structure changes
+  - Location-based pricing issues (37% of products show "cannot be shipped")
+  - More complex parsing logic
+- **Cost:** 5 credits per request
+- **Parser:** handlers/pages-parser.js
+
+#### 2. Amazon API Mode (NEW - feature/amazon-api-mode branch)
+
+- **Endpoint:** ScrapingBee Amazon API (`/api/v1/amazon/product`)
+- **Process:**
+  - Calls Amazon API with ASIN and zip_code parameters
+  - Returns structured JSON response
+  - Transforms JSON to database schema
+- **Advantages:**
+  - **Solves location-based pricing issue** (sets zip_code=10001 for US pricing)
+  - More reliable data extraction (no HTML parsing)
+  - Structured data format (no selector breakage)
+  - Cleaner, simpler parsing logic
+- **Disadvantages:**
+  - Missing some fields (quantity, dateFirstAvailable)
+  - Newer, less battle-tested
+- **Cost:** 5 credits per request (same as HTML mode)
+- **Scraper:** handlers/amazon-api-scraper.js
+- **Parser:** handlers/amazon-api-parser.js
+- **Configuration:** Set `useAmazonAPI: true` in scan config
+- **Status:** Implemented on feature branch, tested locally, awaiting deployment
+
+#### Mode Selection
+
+- **Default:** HTML mode (backward compatible)
+- **Toggle:** Set `useAmazonAPI: true` in scan configuration
+- **Recommendation:** Use Amazon API mode for products with location restrictions
+- **Future:** Frontend UI toggle planned for easy mode switching
+
+#### Field Mapping Comparison
+
+| Field | HTML Mode | API Mode | Notes |
+|-------|-----------|----------|-------|
+| ASIN | ✅ | ✅ | Both modes |
+| Title | ✅ | ✅ | Both modes |
+| Price | ✅ | ✅ | API more reliable for restricted items |
+| Brand | ✅ | ✅ | Both modes |
+| Category | ✅ | ✅ | Both modes |
+| Rank (BSR) | ✅ | ✅ | Both modes |
+| Coupon | ✅ | ✅ | API uses discount_percentage field |
+| Rating | ✅ | ✅ | Both modes |
+| Reviews Count | ✅ | ✅ | Both modes |
+| Availability | ✅ | ✅ | Both modes |
+| isPrime | ✅ | ✅ | API checks delivery_details |
+| Color | ✅ | ✅ | API extracts from variations |
+| Size | ✅ | ✅ | API extracts from variations |
+| Images | ✅ | ✅ | Both modes |
+| Product Link | ✅ | ✅ | Both modes |
+| **Quantity** | ✅ | ❌ | Only in HTML mode |
+| **dateFirstAvailable** | ✅ | ❌ | Only in HTML mode |
+| Purchase Info | ✅ | ❌ | Only in HTML mode |
+| scrapeMethod | N/A | ✅ | Metadata: "html" or "amazon-api" |
+| scrapedAt | N/A | ✅ | Metadata: timestamp |
+| apiVersion | N/A | ✅ | Metadata: "v1" |
+
 ### Real-Time Updates
 
 - **Technology:** Server-Sent Events (SSE)
@@ -1582,6 +1658,32 @@ cp RANKEY_MASTER_CONTEXT.md "C:\Users\user\Documents\Jonathan Documents\NEW\"
      - **Next step:** Analyze logs from failed price extractions to identify root causes
    - **Testing:** Verified on 50 products, ready for production analysis
 
+3. **🔧 Location-based pricing issue - SOLUTION IMPLEMENTED, awaiting deployment**
+   - **Symptoms:** 37% of products show "This item cannot be shipped to your selected delivery location" with no price in HTML
+   - **Root Cause:** HTML scraping captures location-restricted products that can't be shipped to scraper's location
+   - **Solution Implemented (2026-02-10, commit 7496ed8):** Amazon API mode with zip code parameter
+     - Uses ScrapingBee's Amazon API endpoint (/api/v1/amazon/product) instead of HTML API
+     - Sets zip_code=10001 (New York) for consistent US pricing
+     - Returns structured JSON (no HTML parsing needed, more reliable)
+     - Same cost as HTML API (5 credits per request)
+   - **Implementation Details:**
+     - New handlers/amazon-api-scraper.js: API client with retry logic
+     - New handlers/amazon-api-parser.js: JSON to schema transformer
+     - Modified handlers/scan-types/ASINScan.js: Dual-mode support (HTML + API)
+     - Config parameter: useAmazonAPI (default: false, backward compatible)
+   - **Testing Results:**
+     - ✅ B014WOXB6O (previously no price): Now returns $11.99
+     - ✅ B0G8Y8GR28 (normal product with coupon): Returns $99.99 with 50% coupon
+     - ✅ B0711QYPJD (empty price issue): Now returns $9.95
+     - ✅ All field mappings working correctly (price, coupon, category, rank, etc.)
+   - **Status:** Code complete on feature/amazon-api-mode branch, awaiting:
+     - Frontend UI toggle implementation
+     - Full integration testing
+     - Human approval for merge to main
+     - Production deployment
+   - **Deployment ETA:** Pending approval (ready to deploy immediately after approval)
+   - **Known Limitations:** Quantity and dateFirstAvailable not available in Amazon API
+
 ---
 
 ### Recently Resolved
@@ -2561,19 +2663,53 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 
 ### Recent Changes
 
-**2026-02-09 - [local-config] - Fix: CORS blocking local frontend connection**
-- **Issue:** Local frontend (http://localhost:5173) blocked by CORS policy
-- **Error:** Access-Control-Allow-Origin header had production URL, not localhost
-- **Root Cause:** Local .env had NODE_ENV=production instead of development
-- **Solution:** Updated local .env file:
-  - Changed NODE_ENV from "production" to "development"
-  - Changed FRONTEND_URL to "http://localhost:5173"
-  - Backend code automatically uses correct CORS origin based on NODE_ENV
-- **Backend Logic:** `const corsOrigin = isProduction ? process.env.FRONTEND_URL : 'http://localhost:5173';`
-- **Files Updated:** .env (local only, not committed)
-- **Note:** Production .env remains unchanged (NODE_ENV=production)
-- **Status:** Local development environment now properly configured
-- **Action Required:** User must restart local backend for changes to take effect
+**2026-02-10 - 7496ed8 (backend, feature branch) - Feature: Add ScrapingBee Amazon API integration**
+- **Branch:** feature/amazon-api-mode (NOT merged to main yet - awaiting approval)
+- **Problem Solved:** Location-based pricing issue where 37% of products showed "This item cannot be shipped to your selected delivery location" with no price
+- **New Files:**
+  - handlers/amazon-api-scraper.js: ScrapingBee Amazon API client
+    * Uses /api/v1/amazon/product endpoint instead of HTML API
+    * Sets zip_code=10001 for consistent US pricing
+    * Returns structured JSON (no HTML parsing needed)
+    * Implements retry logic: network errors (2x backoff), rate limit (fail fast), 404 (no retry), 500 (retry 1x)
+  - handlers/amazon-api-parser.js: JSON to database schema transformer
+    * Transforms API response to match HTML parser format
+    * Price: buybox[0].price → "$X.XX" format
+    * Category: joins category[0].ladder with ", "
+    * Coupon: extracts from discount_percentage → "X%" or "none"
+    * Prime: detects from delivery_details string
+    * Color/Size: extracts from selected variation dimensions
+    * Adds metadata: scrapeMethod="amazon-api", scrapedAt, apiVersion="v1"
+  - test-amazon-api.js: Local test suite for validation
+- **Modified Files:**
+  - handlers/scan-types/ASINScan.js: Added dual-mode support
+    * New useAmazonAPI config parameter (default: false, backward compatible)
+    * New requestProductWithAmazonAPI() method for API requests
+    * New handleAmazonApiSuccess() and handleAmazonApiError() methods
+    * Conditional logic in runConcurrentRequest() to select HTML vs API mode
+    * Both modes use same logger, error handling, and database save
+- **Benefits:**
+  - Solves location-based pricing issue (products now show prices)
+  - More reliable data extraction (no HTML selector changes)
+  - Same cost as HTML API (5 credits per request)
+  - Tested with 3 problematic ASINs: B014WOXB6O, B0G8Y8GR28, B0711QYPJD
+  - All tests passed: correct prices ($11.99, $99.99, $9.95), coupon detection (50%), proper field mapping
+- **Known Limitations:**
+  - Quantity field not available in Amazon API
+  - dateFirstAvailable not available in Amazon API
+- **Testing:**
+  - ✅ Local testing: All 3 test ASINs returned correct data
+  - ✅ Price formatting: "$X.XX" format verified
+  - ✅ Coupon detection: 50% coupon correctly extracted from discount_percentage
+  - ✅ Category formatting: Comma-separated strings working
+  - ✅ Metadata fields: scrapeMethod, scrapedAt, apiVersion all present
+  - ⏸️ Integration testing: Pending (requires frontend UI toggle implementation)
+  - ⏸️ Production deployment: Awaiting human approval before merge to main
+- **Next Steps:**
+  - Add frontend UI toggle for "Use Amazon API mode" checkbox
+  - Test full scan flow with Amazon API mode enabled
+  - Deploy to production after approval
+- **Documentation:** This changelog entry
 
 **2026-02-09 - [production-hotfix] - Critical: Fix ScrapingBee API key (AGAIN)**
 - **URGENT FIX:** Production and local both had OLD/EXPIRED ScrapingBee API key
@@ -2771,6 +2907,7 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1 | 2026-02-10 | Added Amazon API mode documentation (Section 1, Section 10, Changelog) |
 | 1.0 | 2026-02-02 | Initial creation of RANKEY_MASTER_CONTEXT.md |
 
 ---
@@ -2780,7 +2917,7 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 ---
 
 **Document Status:** ✅ Complete and Up-to-Date
-**Last Updated:** 2026-02-02
+**Last Updated:** 2026-02-10 (Added Amazon API mode documentation, commit 7496ed8)
 **Next Review:** After next major deployment
 **Maintained By:** Claude + Human Collaboration
 

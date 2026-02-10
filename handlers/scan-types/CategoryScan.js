@@ -652,6 +652,7 @@ class CategoryScan extends Scan {
         productsGathered: this.productsGathered,
         target: this.config.numberOfProductsToGather
       });
+      this.setState("halting");
       this.stopAllConcurrentRequests();
     }
   }

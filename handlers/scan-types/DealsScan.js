@@ -608,6 +608,13 @@ class DealsScan extends Scan {
 
     const dbProduct = await this.enqueueProduct(parsedProduct);
 
+    // Check if target reached
+    if (this.productsGathered == this.config.numberOfProductsToGather) {
+      console.log(`🎉 Target reached! ${this.productsGathered}/${this.config.numberOfProductsToGather} products gathered`);
+      this.logger.log('COMPLETE', `Target reached: ${this.productsGathered} products gathered`);
+      this.setState("halting");
+    }
+
     this.productASINsBeingRequested.delete(product.ASIN);
     this.concurrentRequestsOccupied -= 1;
     this.runConcurrentRequest();

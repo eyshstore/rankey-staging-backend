@@ -7,11 +7,12 @@ require('dotenv').config();
 const { amazonApiScraper } = require('./handlers/amazon-api-scraper');
 const { parseAmazonApiData } = require('./handlers/amazon-api-parser');
 
-// Test ASINs from the requirements
+// Test ASINs for bug fixes
 const TEST_ASINS = [
-  { asin: 'B014WOXB6O', description: 'Previously had no price (shipping restriction)', expectedPrice: '$11.99' },
-  { asin: 'B0G8Y8GR28', description: 'Normal product with 50% coupon', expectedPrice: '$99.99', expectedCoupon: '50%' },
-  { asin: 'B0711QYPJD', description: 'Empty price issue', expectedPrice: 'should have price' }
+  { asin: 'B00D7H9LIA', description: 'BUG 1: Price extraction (should return $7.48, not -1)', expectedPrice: '$7.48' },
+  { asin: 'B08D66HCXW', description: 'BUG 2: Coupon false positive (should return NO coupon, not 28%)', expectedCoupon: 'none' },
+  { asin: 'B0007ZF4OA', description: 'BUG 3: Availability status (should be clean, no JS code)' },
+  { asin: 'B07J33BF7V', description: 'BUG 5: Color/Size extraction from product_details' }
 ];
 
 async function testAsin(asinInfo) {
@@ -102,9 +103,9 @@ async function testAsin(asinInfo) {
 async function runTests() {
   console.log('\n');
   console.log('╔════════════════════════════════════════════════════════════════════════════╗');
-  console.log('║        AMAZON API INTEGRATION TEST SUITE                                  ║');
+  console.log('║        AMAZON API PARSER BUG FIX TEST SUITE                               ║');
   console.log('╚════════════════════════════════════════════════════════════════════════════╝');
-  console.log('\nTesting Amazon API scraper and parser with 3 sample ASINs...');
+  console.log('\nTesting parser fixes with 4 sample ASINs...');
   console.log(`API Key configured: ${process.env.SCRAPINGBEE_API_KEY ? 'Yes' : 'No'}`);
 
   const results = [];

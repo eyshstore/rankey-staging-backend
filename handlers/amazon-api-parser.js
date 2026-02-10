@@ -89,44 +89,39 @@ function extractTitle(apiResponse, logger = null) {
 }
 
 /**
- * Extract price from buybox
+ * Extract price with multiple fallbacks
  * Converts number to "$X.XX" format to match HTML parser
  */
 function extractPrice(apiResponse, logger = null) {
-  const buybox = apiResponse.buybox;
+  // Try multiple price sources with fallback
+  const rawPrice =
+    (apiResponse.buybox && apiResponse.buybox[0]?.price) ||  // Try buybox first
+    apiResponse.price_buybox ||                               // Fallback 1
+    apiResponse.price ||                                       // Fallback 2
+    null;                                                      // If all fail
 
   if (logger) {
-    logger.log('AMAZON-API-FIELD', 'Extracting price from buybox', {
-      hasBuybox: !!buybox,
-      buyboxCount: Array.isArray(buybox) ? buybox.length : 0
+    logger.log('AMAZON-API-FIELD', 'Extracting price', {
+      buyboxPrice: apiResponse.buybox?.[0]?.price,
+      price_buybox: apiResponse.price_buybox,
+      price: apiResponse.price,
+      selected: rawPrice
     });
   }
 
-  if (!buybox || !Array.isArray(buybox) || buybox.length === 0) {
+  if (!rawPrice || typeof rawPrice !== 'number' || rawPrice <= 0) {
     if (logger) {
-      logger.log('AMAZON-API-FIELD', 'No buybox data available', { price: null });
-    }
-    return null;
-  }
-
-  const price = buybox[0]?.price;
-
-  if (!price || typeof price !== 'number') {
-    if (logger) {
-      logger.log('AMAZON-API-FIELD', 'No valid price in buybox', {
-        priceValue: price,
-        priceType: typeof price
-      });
+      logger.log('AMAZON-API-FIELD', 'No valid price found', { rawPrice });
     }
     return null;
   }
 
   // Convert to "$X.XX" format (match HTML parser format)
-  const formattedPrice = `$${price.toFixed(2)}`;
+  const formattedPrice = `$${rawPrice.toFixed(2)}`;
 
   if (logger) {
     logger.log('AMAZON-API-FIELD', 'Price extracted and formatted', {
-      rawPrice: price,
+      rawPrice,
       formattedPrice
     });
   }
@@ -226,49 +221,48 @@ function extractRank(apiResponse, logger = null) {
 }
 
 /**
- * Extract coupon from discount_percentage
+ * Extract coupon from coupon field (NOT discount_percentage!)
+ * discount_percentage = List Price discount (strikethrough price)
+ * coupon = Clippable checkbox coupon
  * Returns "X%" format or "none"
  */
 function extractCoupon(apiResponse, logger = null) {
-  const discountPercentage = apiResponse.discount_percentage;
+  const couponText = apiResponse.coupon || "";
 
   if (logger) {
     logger.log('AMAZON-API-FIELD', 'Extracting coupon', {
-      discountPercentage,
-      discountType: typeof discountPercentage
+      couponText,
+      discount_percentage: apiResponse.discount_percentage  // For debugging, but NOT used
     });
   }
 
-  // Validate discount percentage
-  if (
-    discountPercentage === null ||
-    discountPercentage === undefined ||
-    typeof discountPercentage !== 'number' ||
-    discountPercentage <= 0 ||
-    discountPercentage > 100
-  ) {
+  if (couponText.trim() === "") {
     if (logger) {
-      logger.log('AMAZON-API-FIELD', 'No valid coupon', {
-        discountPercentage,
-        coupon: 'none'
-      });
+      logger.log('AMAZON-API-FIELD', 'No coupon found', { coupon: 'none' });
     }
     return 'none';
   }
 
-  // Round to integer and format as percentage
-  const couponValue = Math.round(discountPercentage);
-  const coupon = `${couponValue}%`;
-
-  if (logger) {
-    logger.log('AMAZON-API-FIELD', 'Coupon detected', {
-      rawDiscount: discountPercentage,
-      roundedDiscount: couponValue,
-      coupon
-    });
+  // Extract percentage from string like "Save 20%"
+  const match = couponText.match(/(\d+)%/);
+  if (match) {
+    const coupon = `${match[1]}%`;
+    if (logger) {
+      logger.log('AMAZON-API-FIELD', 'Coupon detected', {
+        couponText,
+        extractedCoupon: coupon
+      });
+    }
+    return coupon;
   }
 
-  return coupon;
+  // Return as-is if no percentage found
+  if (logger) {
+    logger.log('AMAZON-API-FIELD', 'Coupon text without percentage', {
+      couponText
+    });
+  }
+  return couponText;
 }
 
 /**
@@ -304,61 +298,48 @@ function extractReviewsCount(apiResponse, logger = null) {
 }
 
 /**
- * Extract availability status
+ * Extract availability status and clean any HTML/JS contamination
  */
 function extractAvailability(apiResponse, logger = null) {
-  const stock = apiResponse.stock;
+  let stock = apiResponse.stock || "";
 
   if (logger) {
-    logger.log('AMAZON-API-FIELD', 'Extracting availability', {
-      stock,
+    logger.log('AMAZON-API-FIELD', 'Extracting availability (raw)', {
+      stock: stock.substring(0, 200),
       stockType: typeof stock
     });
   }
 
-  return stock || null;
-}
+  if (!stock || typeof stock !== 'string') {
+    return null;
+  }
 
-/**
- * Extract Prime eligibility from delivery details
- */
-function extractPrime(apiResponse, logger = null) {
-  const deliveryDetails = apiResponse.delivery_details;
+  // Clean any HTML/JS if present
+  stock = stock
+    .replace(/<[^>]*>/g, "")       // Remove HTML tags
+    .replace(/P\.when.*?;/gs, "")  // Remove P.when() JavaScript
+    .trim();
 
   if (logger) {
-    logger.log('AMAZON-API-FIELD', 'Extracting Prime status', {
-      hasDeliveryDetails: !!deliveryDetails,
-      deliveryDetailsType: typeof deliveryDetails
+    logger.log('AMAZON-API-FIELD', 'Availability cleaned', {
+      stock: stock || 'Unknown'
     });
   }
 
-  if (!deliveryDetails || typeof deliveryDetails !== 'string') {
-    // Also check buybox delivery details
-    const buyboxDelivery = apiResponse.buybox?.[0]?.delivery_details;
-    if (buyboxDelivery && typeof buyboxDelivery === 'string') {
-      const isPrime = buyboxDelivery.toLowerCase().includes('prime');
-      if (logger) {
-        logger.log('AMAZON-API-FIELD', 'Prime status from buybox', {
-          isPrime,
-          deliveryDetails: buyboxDelivery.substring(0, 100)
-        });
-      }
-      return isPrime;
-    }
+  return stock || "Unknown";
+}
 
-    if (logger) {
-      logger.log('AMAZON-API-FIELD', 'No valid delivery details', { isPrime: false });
-    }
-    return false;
-  }
-
-  // Check if delivery details contain "Prime" (case-insensitive)
-  const isPrime = deliveryDetails.toLowerCase().includes('prime');
+/**
+ * Extract Prime eligibility from is_prime boolean field
+ */
+function extractPrime(apiResponse, logger = null) {
+  // Use the direct boolean field from API
+  const isPrime = apiResponse.is_prime === true;
 
   if (logger) {
-    logger.log('AMAZON-API-FIELD', 'Prime status determined', {
-      isPrime,
-      deliveryDetails: deliveryDetails.substring(0, 100)
+    logger.log('AMAZON-API-FIELD', 'Extracting Prime status', {
+      is_prime: apiResponse.is_prime,
+      isPrime
     });
   }
 
@@ -366,41 +347,30 @@ function extractPrime(apiResponse, logger = null) {
 }
 
 /**
- * Extract color from selected variation
+ * Extract color from selected variation or product_details
  */
 function extractColor(apiResponse, logger = null) {
+  let color = null;
+
+  // Try variations first
   const variations = apiResponse.variations;
-
-  if (logger) {
-    logger.log('AMAZON-API-FIELD', 'Extracting color', {
-      hasVariations: !!variations,
-      variationsCount: Array.isArray(variations) ? variations.length : 0
-    });
-  }
-
-  if (!variations || !Array.isArray(variations)) {
-    if (logger) {
-      logger.log('AMAZON-API-FIELD', 'No variations', { color: null });
+  if (variations && Array.isArray(variations)) {
+    const selectedVariation = variations.find(v => v.selected === true);
+    if (selectedVariation && selectedVariation.dimensions) {
+      color = selectedVariation.dimensions.Color || null;
     }
-    return null;
   }
 
-  // Find selected variation
-  const selectedVariation = variations.find(v => v.selected === true);
-
-  if (!selectedVariation || !selectedVariation.dimensions) {
-    if (logger) {
-      logger.log('AMAZON-API-FIELD', 'No selected variation or dimensions', { color: null });
-    }
-    return null;
+  // Fallback to product_details if variations didn't work
+  if (!color) {
+    const details = apiResponse.product_details || {};
+    color = details.color || null;
   }
-
-  const color = selectedVariation.dimensions.Color || null;
 
   if (logger) {
     logger.log('AMAZON-API-FIELD', 'Color extracted', {
       color,
-      dimensions: Object.keys(selectedVariation.dimensions)
+      source: color ? (variations ? 'variations' : 'product_details') : 'none'
     });
   }
 
@@ -408,41 +378,30 @@ function extractColor(apiResponse, logger = null) {
 }
 
 /**
- * Extract size from selected variation
+ * Extract size from selected variation or product_details
  */
 function extractSize(apiResponse, logger = null) {
+  let size = null;
+
+  // Try variations first
   const variations = apiResponse.variations;
-
-  if (logger) {
-    logger.log('AMAZON-API-FIELD', 'Extracting size', {
-      hasVariations: !!variations,
-      variationsCount: Array.isArray(variations) ? variations.length : 0
-    });
-  }
-
-  if (!variations || !Array.isArray(variations)) {
-    if (logger) {
-      logger.log('AMAZON-API-FIELD', 'No variations', { size: null });
+  if (variations && Array.isArray(variations)) {
+    const selectedVariation = variations.find(v => v.selected === true);
+    if (selectedVariation && selectedVariation.dimensions) {
+      size = selectedVariation.dimensions.Size || null;
     }
-    return null;
   }
 
-  // Find selected variation
-  const selectedVariation = variations.find(v => v.selected === true);
-
-  if (!selectedVariation || !selectedVariation.dimensions) {
-    if (logger) {
-      logger.log('AMAZON-API-FIELD', 'No selected variation or dimensions', { size: null });
-    }
-    return null;
+  // Fallback to product_details if variations didn't work
+  if (!size) {
+    const details = apiResponse.product_details || {};
+    size = details.memory_storage_capacity || details.size || null;
   }
-
-  const size = selectedVariation.dimensions.Size || null;
 
   if (logger) {
     logger.log('AMAZON-API-FIELD', 'Size extracted', {
       size,
-      dimensions: Object.keys(selectedVariation.dimensions)
+      source: size ? (variations ? 'variations' : 'product_details') : 'none'
     });
   }
 

@@ -1,6 +1,8 @@
 const { Scan } = require("./Scan");
 const { ScanModel } = require("../../collections/scan");
 const { parseProductData } = require("../pages-parser");
+const { parseAmazonApiData } = require("../amazon-api-parser");
+const { amazonApiScraper } = require("../amazon-api-scraper");
 const { Types } = require("mongoose");
 const { getScrapingProviderManager } = require("../../providers/ScrapingProviderManager");
 const { notifyScansUpdate } = require("../../routes/sse/scans-list");
@@ -52,6 +54,7 @@ class ASINScan extends Scan {
       maxConcurrentRequests: config.maxConcurrentRequests,
       maxRequests: config.maxRequests,
       maxRerequests: config.maxRerequests,
+      useAmazonAPI: config.useAmazonAPI || false,
     });
     notifyScansUpdate();
   }
@@ -59,7 +62,7 @@ class ASINScan extends Scan {
   async loadAndStart(scanId) {
     const config = await ScanModel.findById(scanId, {
       _id: 1, ASINs: 1, domain: 1, maxConcurrentRequests: 1,
-      createdAt: 1, maxRequests: 1, maxRerequests: 1,
+      createdAt: 1, maxRequests: 1, maxRerequests: 1, useAmazonAPI: 1,
     }).lean();
 
     if (!config) throw new HttpError(404, `Scan ${scanId} not found`);
@@ -79,6 +82,7 @@ class ASINScan extends Scan {
       maxRequests: config.maxRequests,
       maxRerequests: config.maxRerequests,
       debugPriceLogging: config.debugPriceLogging || false,
+      useAmazonAPI: config.useAmazonAPI || false,
     };
     console.log(`INIT CALLED`);
 
@@ -88,6 +92,7 @@ class ASINScan extends Scan {
       scanId: scan._id,
       asins: config.ASINs,
       domain: config.domain,
+      scrapeMode: this.config.useAmazonAPI ? 'amazon-api' : 'html',
       debugPriceLogging: this.config.debugPriceLogging,
       maxConcurrentRequests: config.maxConcurrentRequests,
       maxRequests: config.maxRequests,
@@ -127,17 +132,33 @@ class ASINScan extends Scan {
 
     while (this.shouldGetPage()) {
       const product = this.productsQueue.pop();
-      const url = `https://www.amazon.${this.config.domain}/dp/${product.ASIN}`;
       this.activeASINs.push(product.ASIN);
 
-      this.logger.log('REQUEST', `Sending request for ASIN: ${product.ASIN}`, {
-        asin: product.ASIN,
-        url,
-        provider: getScrapingProviderManager().selectedScrapingProvider.name,
-        rerequests: product.rerequests
-      });
+      // Choose scraping mode based on configuration
+      if (this.config.useAmazonAPI) {
+        // Use Amazon API mode
+        this.logger.log('REQUEST', `Sending Amazon API request for ASIN: ${product.ASIN}`, {
+          asin: product.ASIN,
+          mode: 'amazon-api',
+          rerequests: product.rerequests
+        });
 
-      await this.requestPageWithHtml(url, this.handleProductPageSuccess, this.handleProductPageError, product);
+        await this.requestProductWithAmazonAPI(product);
+      } else {
+        // Use HTML scraping mode (default)
+        const url = `https://www.amazon.${this.config.domain}/dp/${product.ASIN}`;
+
+        this.logger.log('REQUEST', `Sending HTML scraping request for ASIN: ${product.ASIN}`, {
+          asin: product.ASIN,
+          url,
+          mode: 'html',
+          provider: getScrapingProviderManager().selectedScrapingProvider.name,
+          rerequests: product.rerequests
+        });
+
+        await this.requestPageWithHtml(url, this.handleProductPageSuccess, this.handleProductPageError, product);
+      }
+
       this.activeASINs = this.activeASINs.filter(a => a !== product.ASIN);
     }
 
@@ -189,6 +210,145 @@ class ASINScan extends Scan {
       this.logger.error('REQUEST-ERROR', `Request failed for ${args[0].ASIN}`, err);
       // Not waiting for the handler
       errorCallback(err, requestedAt, Date.now(), ...args);
+    }
+  }
+
+  /**
+   * Request product data using Amazon API (alternative to HTML scraping)
+   * @param {object} product - Product object with ASIN and rerequests count
+   */
+  async requestProductWithAmazonAPI(product) {
+    const requestedAt = Date.now();
+
+    try {
+      this.sentRequests++;
+      console.log(`📤 Sending Amazon API request: ${this.sentRequests}`);
+
+      if (this.sentRequests == this.config.maxRequests) {
+        this.setState("halting");
+        console.log(`⛔ Max requests reached: ${this.config.maxRequests}`);
+      }
+
+      // Scrape using Amazon API
+      const apiResponse = await amazonApiScraper.scrapeProduct(product.ASIN, {
+        zipCode: '10001', // New York zip code for consistent US pricing
+        logger: this.logger
+      });
+
+      const receivedAt = Date.now();
+
+      this.logger.log('AMAZON-API-RESPONSE', `API response received for ${product.ASIN}`, {
+        asin: product.ASIN,
+        responseTime: receivedAt - requestedAt,
+        hasData: !!apiResponse
+      });
+
+      // Parse API response
+      await this.handleAmazonApiSuccess(apiResponse, requestedAt, receivedAt, product);
+
+    } catch (err) {
+      this.logger.error('AMAZON-API-ERROR', `API request failed for ${product.ASIN}`, err);
+      // Handle error using similar logic to HTML scraping
+      await this.handleAmazonApiError(err, requestedAt, Date.now(), product);
+    }
+  }
+
+  /**
+   * Handle successful Amazon API response
+   */
+  async handleAmazonApiSuccess(apiResponse, requestedAt, receivedAt, product) {
+    this.logger.log('AMAZON-API-PARSE', `Parsing API response for ${product.ASIN}`);
+
+    const productData = {
+      ...parseAmazonApiData(apiResponse, this.logger),
+      requestedAt,
+      receivedAt,
+      sentRequests: product.rerequests + 1,
+    };
+
+    this.logger.log('AMAZON-API-PARSE-COMPLETE', `Parse complete for ${product.ASIN}`, {
+      asin: product.ASIN,
+      titleFound: !!productData.title,
+      title: productData.title || 'EMPTY',
+      priceFound: !!productData.price,
+      price: productData.price || 'EMPTY',
+      brand: productData.brand || 'EMPTY',
+      category: productData.category || 'EMPTY',
+      rank: productData.rank || 'EMPTY',
+      hasCoupon: productData.discountCoupon !== 'none' ? 'YES' : 'NO',
+      coupon: productData.discountCoupon || 'none',
+      scrapeMethod: productData.scrapeMethod
+    });
+
+    await this.saveProductData(product.ASIN, productData);
+  }
+
+  /**
+   * Handle Amazon API errors
+   */
+  async handleAmazonApiError(error, requestedAt, receivedAt, product) {
+    const statusCode = error.statusCode || 500;
+
+    this.logger.error('AMAZON-API-ERROR', `Failed to process ${product.ASIN}`, error);
+    this.logger.log('AMAZON-API-ERROR-DETAILS', `Error details for ${product.ASIN}`, {
+      asin: product.ASIN,
+      statusCode,
+      errorMessage: error.message,
+      errorCode: error.code,
+      rerequests: product.rerequests
+    });
+
+    const errorConfig = {
+      scanId: this.config.id,
+      status: "failed",
+      sentRequests: product.rerequests + 1,
+      requestedAt,
+      receivedAt,
+      scrapeMethod: 'amazon-api'
+    };
+
+    // Handle errors similar to HTML scraping
+    switch (statusCode) {
+      case 401:
+        this.logger.log('AMAZON-API-ERROR-HANDLING', 'API key issue - stalling scan', { asin: product.ASIN });
+        this.productsQueue.push(product);
+        return this.setState("stalling");
+
+      case 429:
+        this.logger.log('AMAZON-API-ERROR-HANDLING', 'Rate limit - reducing concurrency', {
+          asin: product.ASIN,
+          currentConcurrency: this.config.maxConcurrentRequests
+        });
+        this.productsQueue.push(product);
+        this.occupiedConcurrentRequests--;
+        if (this.config.maxConcurrentRequests > 1) this.config.maxConcurrentRequests--;
+        return;
+
+      case 404:
+        this.logger.log('AMAZON-API-ERROR-HANDLING', 'Product not found', { asin: product.ASIN, statusCode });
+        return this.saveProductData(product.ASIN, { ...errorConfig, status: "absent" });
+
+      case 500:
+        if (product.rerequests < this.config.maxRerequests) {
+          this.logger.log('AMAZON-API-ERROR-HANDLING', 'Server error - retrying', {
+            asin: product.ASIN,
+            rerequests: product.rerequests,
+            maxRerequests: this.config.maxRerequests
+          });
+          product.rerequests++;
+          return this.productsQueue.push(product);
+        }
+        this.logger.log('AMAZON-API-ERROR-HANDLING', 'Max retries reached - marking as failed', {
+          asin: product.ASIN
+        });
+        return this.saveProductData(product.ASIN, errorConfig);
+
+      default:
+        this.logger.log('AMAZON-API-ERROR-HANDLING', 'Unknown error - marking as failed', {
+          asin: product.ASIN,
+          statusCode
+        });
+        return this.saveProductData(product.ASIN, errorConfig);
     }
   }
 
@@ -332,6 +492,7 @@ class ASINScan extends Scan {
       maxRerequests: config.maxRerequests,
       maxConcurrentRequests: config.maxConcurrentRequests,
       numberOfProductsToGather: config.ASINs.length,
+      useAmazonAPI: config.useAmazonAPI || false,
     });
   }
 

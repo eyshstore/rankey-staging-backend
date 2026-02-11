@@ -40,7 +40,7 @@ class ASINScan extends Scan {
   async startImmediately(config) {
     const scan = await this.createScan(config);
     this.init(scan, config);
-    this.setState("active");
+    await this.setState("active");
     this.startConcurrentRequests();
   }
 
@@ -68,7 +68,7 @@ class ASINScan extends Scan {
     if (!config) throw new HttpError(404, `Scan ${scanId} not found`);
 
     this.init(config, config);
-    this.setState("active");
+    await this.setState("active");
     this.startConcurrentRequests();
   }
 
@@ -116,8 +116,8 @@ class ASINScan extends Scan {
     this.productsQueue = config.ASINs.map(ASIN => ({ ASIN, rerequests: 0 }));
   }
 
-  resume() {
-    this.setState("active");
+  async resume() {
+    await this.setState("active");
     this.startConcurrentRequests();
   }
 

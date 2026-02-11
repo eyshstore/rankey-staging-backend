@@ -13,7 +13,13 @@
  * Known limitations:
  * - Quantity field not available in API
  * - dateFirstAvailable not available in API
+ *
+ * Hybrid approach for coupon extraction:
+ * - Tries API fields first (fast)
+ * - Falls back to HTML parsing if API fields are empty (reliable)
  */
+
+const cheerio = require('cheerio');
 
 /**
  * Parse Amazon API response into database schema
@@ -225,6 +231,7 @@ function extractRank(apiResponse, logger = null) {
  * Priority 1: discount_percentage (checkbox coupon on product page)
  * Priority 2: coupon_discount_percentage (alternative coupon field)
  * Priority 3: coupon text field (descriptive text)
+ * Priority 4: HTML parsing fallback (when API fields are inconsistent)
  * Returns "X%" format or "none"
  */
 function extractCoupon(apiResponse, logger = null) {
@@ -233,7 +240,8 @@ function extractCoupon(apiResponse, logger = null) {
     logger.log('AMAZON-API-FIELD', 'Extracting coupon', {
       discount_percentage: apiResponse.discount_percentage,
       coupon_discount_percentage: apiResponse.coupon_discount_percentage,
-      coupon: apiResponse.coupon
+      coupon: apiResponse.coupon,
+      hasHtml: !!apiResponse.html
     });
   }
 
@@ -286,9 +294,51 @@ function extractCoupon(apiResponse, logger = null) {
     return couponText;
   }
 
-  // No coupon found
+  // Priority 4: HTML FALLBACK - Parse HTML when API fields are empty
+  if (apiResponse.html) {
+    if (logger) {
+      logger.log('AMAZON-API-FIELD', 'API fields empty, trying HTML fallback', {
+        htmlLength: apiResponse.html.length
+      });
+    }
+
+    try {
+      const $ = cheerio.load(apiResponse.html);
+
+      // Import the existing HTML parser function
+      const { getDiscountCoupon } = require('./pages-parser');
+      const htmlCoupon = getDiscountCoupon($);
+
+      if (htmlCoupon && htmlCoupon !== 'none') {
+        if (logger) {
+          logger.log('AMAZON-API-FIELD', 'Coupon found via HTML fallback', {
+            source: 'html-parsing',
+            value: htmlCoupon,
+            method: 'getDiscountCoupon from pages-parser.js'
+          });
+        }
+        return htmlCoupon;
+      } else {
+        if (logger) {
+          logger.log('AMAZON-API-FIELD', 'HTML fallback found no coupon', {
+            result: htmlCoupon
+          });
+        }
+      }
+    } catch (error) {
+      if (logger) {
+        logger.log('AMAZON-API-ERROR', 'HTML fallback parsing failed', {
+          error: error.message,
+          stack: error.stack
+        });
+      }
+      // Continue to return 'none' below
+    }
+  }
+
+  // No coupon found in any method
   if (logger) {
-    logger.log('AMAZON-API-FIELD', 'No coupon found in any field', {
+    logger.log('AMAZON-API-FIELD', 'No coupon found in any field or HTML', {
       coupon: 'none'
     });
   }

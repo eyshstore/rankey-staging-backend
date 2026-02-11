@@ -1760,15 +1760,21 @@ cp RANKEY_MASTER_CONTEXT.md "C:\Users\user\Documents\Jonathan Documents\NEW\"
      - Config parameter: useAmazonAPI (default: false, backward compatible)
    - **Testing Results:**
      - ✅ B014WOXB6O (previously no price): Now returns $11.99
-     - ✅ B0G8Y8GR28 (normal product with coupon): Returns $99.99 with 50% coupon
+     - ❌ B0G8Y8GR28 (normal product with coupon): Returns $99.99 but MISSING 50% coupon
      - ✅ B0711QYPJD (empty price issue): Now returns $9.95
-     - ✅ All field mappings working correctly (price, coupon, category, rank, etc.)
+     - ⚠️ Coupon detection FAILING for checkbox coupons
+   - **⚠️ NEW ISSUE DISCOVERED (2026-02-11):** Checkbox coupons not detected
+     - extractCoupon() only checks apiResponse.coupon (often empty), ignores discount_percentage and coupon_discount_percentage
+     - B0G8Y8GR28 has discount_percentage: 50 but parser returned 'none'
+     - 3 proposed solutions documented in Changelog entry
+     - Investigation complete, awaiting approval to implement fix
    - **Status:** Code complete on feature/amazon-api-mode branch, awaiting:
+     - Coupon detection fix (investigation complete)
      - Frontend UI toggle implementation
      - Full integration testing
      - Human approval for merge to main
      - Production deployment
-   - **Deployment ETA:** Pending approval (ready to deploy immediately after approval)
+   - **Deployment ETA:** Pending approval (ready to deploy after coupon fix)
    - **Known Limitations:** Quantity and dateFirstAvailable not available in Amazon API
 
 ---
@@ -2759,6 +2765,13 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 ---
 
 ### Recent Changes
+
+**2026-02-11 - [investigation] (backend, feature branch) - Investigation: Amazon API coupon detection failure**
+- **Branch:** feature/amazon-api-mode (NOT merged to main yet)
+- **Issue:** Checkbox coupons not detected - extractCoupon() only checks apiResponse.coupon field (often empty), ignores discount_percentage and coupon_discount_percentage
+- **Root Cause:** Parser returns 'none' even when discount_percentage: 50 exists (verified in scan logs for B0G8Y8GR28)
+- **Proposed Solutions:** (1) Check coupon_discount_percentage field, (2) Parse HTML field, (3) Hybrid approach
+- **Status:** Investigation complete, awaiting approval to implement fix
 
 **2026-02-10 - [pending] (backend + frontend, feature branch) - Feature: Extend Amazon API mode to ALL scan types**
 - **Branch:** feature/amazon-api-mode (NOT merged to main yet - awaiting approval)

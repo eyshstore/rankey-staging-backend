@@ -473,7 +473,7 @@ Rankey supports **two scraping modes** for product data extraction:
 
 | Repository | Latest Commit | Status |
 |------------|---------------|--------|
-| **Backend** | 276a370 | ⏸️ Ready to push |
+| **Backend** | ffeeb52 | ⏸️ Ready to push |
 | **Frontend** | 39b29e3 | ✅ Pushed to GitHub |
 
 **Feature:** Amazon API mode integration for solving location-based pricing issues
@@ -482,7 +482,8 @@ Rankey supports **two scraping modes** for product data extraction:
 - 7496ed8: Core implementation (scraper, parser, ASINScan modifications)
 - 6058f74: Documentation update
 - ffc6ad8: Investigation findings for coupon detection failure
-- 276a370: Fix for coupon detection using discount_percentage field
+- 2b8dedb: Fix for coupon detection using discount_percentage field
+- ffeeb52: Hybrid coupon extraction with HTML fallback + data investigation
 
 **Frontend Commits:**
 - 39b29e3: UI toggle for Amazon API mode
@@ -1762,16 +1763,25 @@ cp RANKEY_MASTER_CONTEXT.md "C:\Users\user\Documents\Jonathan Documents\NEW\"
      - Config parameter: useAmazonAPI (default: false, backward compatible)
    - **Testing Results:**
      - ✅ B014WOXB6O (previously no price): Now returns $11.99
-     - ✅ B0G8Y8GR28 (normal product with coupon): Returns $99.99 with 50% coupon (FIXED 2026-02-11)
+     - ✅ B0G8Y8GR28 (normal product with coupon): Returns $99.99 with 50% coupon (uses discount_percentage field)
+     - ✅ B0DDTCQGTR (inconsistent API): 10% coupon detected via HTML fallback (hybrid approach)
      - ✅ B0711QYPJD (empty price issue): Now returns $9.95
      - ✅ All field mappings working correctly (price, coupon, category, rank, etc.)
-   - **✅ COUPON DETECTION FIX (2026-02-11):** Modified extractCoupon() to use discount_percentage field
-     - Added priority-based checking: discount_percentage → coupon_discount_percentage → coupon text
-     - Enhanced logging to show which field was used for extraction
-     - B0G8Y8GR28 now correctly detects 50% coupon from discount_percentage field
-     - Resolves checkbox coupon detection failure (issue discovered and fixed same day)
+   - **✅ HYBRID COUPON DETECTION (2026-02-11, commit ffeeb52):** Implemented 4-tier fallback system
+     - Priority 1: discount_percentage (fast, works for B0G8Y8GR28 - 50% coupon)
+     - Priority 2: coupon_discount_percentage (alternative API field)
+     - Priority 3: coupon text field (descriptive text extraction)
+     - Priority 4: HTML parsing fallback (reliable, works for B0DDTCQGTR - 10% coupon)
+     - Uses getDiscountCoupon() from pages-parser.js for HTML fallback
+     - Wrapped in try-catch for error handling
+     - Enhanced logging shows which method was used
+     - Solves Amazon API inconsistency issue
+   - **✅ DATA INTEGRITY VERIFIED (2026-02-11):** MongoDB investigation confirmed all data saves correctly
+     - Schema uses uppercase "ASIN" field (collections/product.js line 38)
+     - B0DDTCQGTR product _id 68eca4feab8c494a7847efc6 contains all fields
+     - Excel export showing old data from changeHistory (not a save bug)
    - **Status:** Code complete on feature/amazon-api-mode branch, awaiting:
-     - Full integration testing with coupon fix
+     - Full integration testing with hybrid coupon approach
      - Human approval for merge to main
      - Production deployment
    - **Deployment ETA:** Pending approval (ready to deploy)
@@ -2766,13 +2776,24 @@ scp root@5.78.43.96:/tmp/rankey-mongo-backup-*.tar.gz .
 
 ### Recent Changes
 
-**2026-02-11 - [pending] (backend, feature branch) - Fix: Amazon API coupon detection using discount_percentage field**
+**2026-02-11 - ffeeb52 (backend, feature branch) - Feature: Hybrid coupon extraction with HTML fallback**
+- **Branch:** feature/amazon-api-mode (NOT merged to main yet)
+- **Implementation:** Added Priority 4 HTML parsing fallback to extractCoupon()
+  - Uses getDiscountCoupon() from pages-parser.js when API fields empty
+  - Wrapped in try-catch for error handling
+  - Added cheerio import for HTML parsing
+- **Fixes:** B0DDTCQGTR coupon detection (10% coupon found via HTML fallback)
+- **Performance:** Maintains speed - B0G8Y8GR28 uses discount_percentage (no HTML parsing needed)
+- **Investigation:** Confirmed B0DDTCQGTR data saves correctly - Excel showing old changeHistory data
+- **Status:** Hybrid approach complete, ready for testing
+
+**2026-02-11 - 2b8dedb (backend, feature branch) - Fix: Amazon API coupon detection using discount_percentage field**
 - **Branch:** feature/amazon-api-mode (NOT merged to main yet)
 - **Modified:** handlers/amazon-api-parser.js extractCoupon() function
 - **Fix:** Added priority-based field checking: (1) discount_percentage, (2) coupon_discount_percentage, (3) coupon text
-- **Testing:** B0G8Y8GR28 should now detect 50% coupon from discount_percentage: 50 field
+- **Testing:** B0G8Y8GR28 ✅ detects 50% coupon from discount_percentage: 50 field
 - **Logging:** Enhanced to show which field was used for coupon extraction
-- **Resolves:** Investigation finding from ffc6ad8 - checkbox coupons now detected correctly
+- **Status:** Partial fix - works for B0G8Y8GR28, fails for B0DDTCQGTR → led to hybrid approach
 
 **2026-02-11 - ffc6ad8 (backend, feature branch) - Investigation: Amazon API coupon detection failure**
 - **Branch:** feature/amazon-api-mode (NOT merged to main yet)

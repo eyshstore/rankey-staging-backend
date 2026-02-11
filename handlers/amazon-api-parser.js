@@ -221,48 +221,78 @@ function extractRank(apiResponse, logger = null) {
 }
 
 /**
- * Extract coupon from coupon field (NOT discount_percentage!)
- * discount_percentage = List Price discount (strikethrough price)
- * coupon = Clippable checkbox coupon
+ * Extract coupon from multiple API fields with priority fallback
+ * Priority 1: discount_percentage (checkbox coupon on product page)
+ * Priority 2: coupon_discount_percentage (alternative coupon field)
+ * Priority 3: coupon text field (descriptive text)
  * Returns "X%" format or "none"
  */
 function extractCoupon(apiResponse, logger = null) {
-  const couponText = apiResponse.coupon || "";
-
+  // Log available fields for debugging
   if (logger) {
     logger.log('AMAZON-API-FIELD', 'Extracting coupon', {
-      couponText,
-      discount_percentage: apiResponse.discount_percentage  // For debugging, but NOT used
+      discount_percentage: apiResponse.discount_percentage,
+      coupon_discount_percentage: apiResponse.coupon_discount_percentage,
+      coupon: apiResponse.coupon
     });
   }
 
-  if (couponText.trim() === "") {
+  // Priority 1: Check discount_percentage (checkbox coupon)
+  if (apiResponse.discount_percentage && apiResponse.discount_percentage > 0) {
+    const couponValue = `${apiResponse.discount_percentage}%`;
     if (logger) {
-      logger.log('AMAZON-API-FIELD', 'No coupon found', { coupon: 'none' });
-    }
-    return 'none';
-  }
-
-  // Extract percentage from string like "Save 20%"
-  const match = couponText.match(/(\d+)%/);
-  if (match) {
-    const coupon = `${match[1]}%`;
-    if (logger) {
-      logger.log('AMAZON-API-FIELD', 'Coupon detected', {
-        couponText,
-        extractedCoupon: coupon
+      logger.log('AMAZON-API-FIELD', 'Coupon found via discount_percentage', {
+        source: 'discount_percentage',
+        value: couponValue
       });
     }
-    return coupon;
+    return couponValue;
   }
 
-  // Return as-is if no percentage found
+  // Priority 2: Check coupon_discount_percentage
+  if (apiResponse.coupon_discount_percentage && apiResponse.coupon_discount_percentage > 0) {
+    const couponValue = `${apiResponse.coupon_discount_percentage}%`;
+    if (logger) {
+      logger.log('AMAZON-API-FIELD', 'Coupon found via coupon_discount_percentage', {
+        source: 'coupon_discount_percentage',
+        value: couponValue
+      });
+    }
+    return couponValue;
+  }
+
+  // Priority 3: Check coupon text field
+  const couponText = apiResponse.coupon || "";
+  if (couponText.trim() !== "") {
+    const match = couponText.match(/(\d+)%/);
+    if (match) {
+      const couponValue = `${match[1]}%`;
+      if (logger) {
+        logger.log('AMAZON-API-FIELD', 'Coupon found via coupon text', {
+          source: 'coupon',
+          rawText: couponText,
+          value: couponValue
+        });
+      }
+      return couponValue;
+    }
+    // If coupon text exists but no percentage match, return as-is
+    if (logger) {
+      logger.log('AMAZON-API-FIELD', 'Coupon text found but no percentage', {
+        source: 'coupon',
+        rawText: couponText
+      });
+    }
+    return couponText;
+  }
+
+  // No coupon found
   if (logger) {
-    logger.log('AMAZON-API-FIELD', 'Coupon text without percentage', {
-      couponText
+    logger.log('AMAZON-API-FIELD', 'No coupon found in any field', {
+      coupon: 'none'
     });
   }
-  return couponText;
+  return 'none';
 }
 
 /**

@@ -314,10 +314,21 @@ function extractAvailability(apiResponse, logger = null) {
     return null;
   }
 
-  // Clean any HTML/JS if present
+  // If stock field contains JavaScript, it's contaminated - return "Unknown"
+  if (stock.includes("P.when") ||
+      stock.includes("function") ||
+      stock.includes("execute")) {
+    if (logger) {
+      logger.log('AMAZON-API-FIELD', 'Availability contaminated with JavaScript - returning Unknown', {
+        stockPreview: stock.substring(0, 100)
+      });
+    }
+    return "Unknown";
+  }
+
+  // Otherwise clean HTML tags and return
   stock = stock
-    .replace(/<[^>]*>/g, "")       // Remove HTML tags
-    .replace(/P\.when.*?;/gs, "")  // Remove P.when() JavaScript
+    .replace(/<[^>]*>/g, "")  // Remove HTML tags
     .trim();
 
   if (logger) {
